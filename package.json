@@ -1,0 +1,38 @@
+{
+  "name": "p2p-edit",
+  "version": "1.0.0",
+  "description": "",
+  "main": "ex/app.js",
+  "scripts": {
+    "postinstall": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack",
+    "watch": "find src | entr -r npm run build",
+    "dev": "npm run watch & npm run ex",
+    "signal": "node ./src/server/signaler.js",
+    "ex": "node ex/app.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {},
+  "devDependencies": {
+    "babel-loader": "^6.2.4",
+    "babel-preset-es2015": "^6.9.0",
+    "babel-preset-react": "^6.5.0",
+    "codemirror": "^5.15.2",
+    "eventemitter3": "^1.2.0",
+    "koa": "^1.2.0",
+    "koa-static": "^2.0.0",
+    "koa-webpack-dev-middleware": "^1.2.1",
+    "node-static": "^0.7.7",
+    "ot-text-tp2": "https://github.com/ottypes/text-tp2#dc9bbee75547b76e9d6defe909eb48cb6d3ecce1",
+    "react": "^15.1.0",
+    "react-dom": "^15.1.0",
+    "react-hot-loader": "^1.3.0",
+    "sha-1": "^0.1.1",
+    "webpack": "^1.13.1",
+    "webpack-dev-middleware": "^1.6.1",
+    "webpack-hot-middleware": "^2.10.0",
+    "websocket": "^1.0.23"
+  }
+}
