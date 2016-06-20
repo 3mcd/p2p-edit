@@ -5,13 +5,13 @@ import { c, noop, uuid } from './utils';
 import webRTCClient from './types/p2p';
 import cmAdapter from './adapters/codemirror';
 
+const DEFAULT_SCOPE = '/';
+
 const MESSAGE_TYPES = {
     OP: 'op'
 };
 
 const createMessage = (t, p) => ({ t, p });
-
-const unpackMessage = (m) => m.p;
 
 const proto = c({
 
@@ -19,30 +19,49 @@ const proto = c({
         if (this.models[id]) {
             return this.models[id];
         }
-        const scope = this._RTC.createScope(id);
+
         const m = model(id, text);
         this.models[id] = m;
+
         m.on('broadcast', (payload) => this.broadcast(payload));
         m.on('resync', noop);
-        scope.on('message', (...args) => this.onMessage(...args));
+
+        this._RTC.createScope(id, {
+            getMeta: () => ({
+                model: m.exportModel(),
+                history: m.exportHistory()
+            })
+        });
+        this._RTC.on('data', (...args) => this.handleMessage(...args));
+
         return m;
     },
 
-    broadcast(payload) {
-        const msg = createMessage('op', payload);
-        this._RTC.send(msg, { scope: payload.id });
+    broadcast(p) {
+        const msg = createMessage('op', p);
+        this._RTC.send(msg, { scope: p.id });
     },
 
-    handleOpPayload(payload) {
-        const { id, op, r } = payload;
+    handleOpPayload(p) {
+        const { id, op, r } = p;
         this.models[id].remoteOp(r, op);
     },
 
-    onMessage(msg) {
-        const payload = unpackMessage(msg);
-        switch (msg.type) {
+    handleMeta(p, id) {
+        const { model, history } = p;
+        this.models[id].importModel(model);
+        this.models[id].importHistory(history);
+    },
+
+    handleMessage(msg) {
+        const { scope, data } = msg;
+        console.log(msg);
+        switch (data.t) {
             case 'op':
-                this.handleOpPayload(payload);
+                this.handleOpPayload(data.p);
+                break;
+            case 'meta':
+                this.handleMeta(data.p, msg.scope);
                 break;
             default:
                 break;
@@ -62,9 +81,12 @@ const p2pedit = function (config = {}) {
         _RTC: rtc
     };
 
-    rtc.on('ready', () => this.emit('ready'));
-
     const obj = c(proto, props);
+
+    rtc.on('ready', () => {
+        obj.model(DEFAULT_SCOPE);
+        obj.emit('ready');
+    });
 
     EventEmitter.call(obj);
 

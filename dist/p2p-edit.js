@@ -80,16 +80,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
+	var DEFAULT_SCOPE = '/';
+
 	var MESSAGE_TYPES = {
 	    OP: 'op'
 	};
 
 	var createMessage = function createMessage(t, p) {
 	    return { t: t, p: p };
-	};
-
-	var unpackMessage = function unpackMessage(m) {
-	    return m.p;
 	};
 
 	var proto = (0, _utils.c)({
@@ -99,34 +97,58 @@ return /******/ (function(modules) { // webpackBootstrap
 	        if (this.models[id]) {
 	            return this.models[id];
 	        }
-	        var scope = this._RTC.createScope(id);
+
 	        var m = (0, _model3.default)(id, text);
 	        this.models[id] = m;
+
 	        m.on('broadcast', function (payload) {
 	            return _this.broadcast(payload);
 	        });
 	        m.on('resync', _utils.noop);
-	        scope.on('message', function () {
-	            return _this.onMessage.apply(_this, arguments);
+
+	        this._RTC.createScope(id, {
+	            getMeta: function getMeta() {
+	                return {
+	                    model: m.exportModel(),
+	                    history: m.exportHistory()
+	                };
+	            }
 	        });
+	        this._RTC.on('data', function () {
+	            return _this.handleMessage.apply(_this, arguments);
+	        });
+
 	        return m;
 	    },
-	    broadcast: function broadcast(payload) {
-	        var msg = createMessage('op', payload);
-	        this._RTC.send(msg, { scope: payload.id });
+	    broadcast: function broadcast(p) {
+	        var msg = createMessage('op', p);
+	        this._RTC.send(msg, { scope: p.id });
 	    },
-	    handleOpPayload: function handleOpPayload(payload) {
-	        var id = payload.id;
-	        var op = payload.op;
-	        var r = payload.r;
+	    handleOpPayload: function handleOpPayload(p) {
+	        var id = p.id;
+	        var op = p.op;
+	        var r = p.r;
 
 	        this.models[id].remoteOp(r, op);
 	    },
-	    onMessage: function onMessage(msg) {
-	        var payload = unpackMessage(msg);
-	        switch (msg.type) {
+	    handleMeta: function handleMeta(p, id) {
+	        var model = p.model;
+	        var history = p.history;
+
+	        this.models[id].importModel(model);
+	        this.models[id].importHistory(history);
+	    },
+	    handleMessage: function handleMessage(msg) {
+	        var scope = msg.scope;
+	        var data = msg.data;
+
+	        console.log(msg);
+	        switch (data.t) {
 	            case 'op':
-	                this.handleOpPayload(payload);
+	                this.handleOpPayload(data.p);
+	                break;
+	            case 'meta':
+	                this.handleMeta(data.p, msg.scope);
 	                break;
 	            default:
 	                break;
@@ -135,8 +157,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	}, _eventemitter2.default.prototype);
 
 	var p2pedit = function p2pedit() {
-	    var _this2 = this;
-
 	    var config = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
 
 	    var id = config.id || (0, _utils.uuid)();
@@ -149,11 +169,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	        _RTC: rtc
 	    };
 
-	    rtc.on('ready', function () {
-	        return _this2.emit('ready');
-	    });
-
 	    var obj = (0, _utils.c)(proto, props);
+
+	    rtc.on('ready', function () {
+	        obj.model(DEFAULT_SCOPE);
+	        obj.emit('ready');
+	    });
 
 	    _eventemitter2.default.call(obj);
 
@@ -504,10 +525,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	    broadcast: function broadcast(op, r) {
 	        var id = this.id;
 	        var parent = this._history.getRevision(r).parent;
-	        this.emit('broadcast', { id: id, op: op, r: r });
+	        this.emit('broadcast', { id: id, op: op, r: parent });
 	    },
 	    remoteOp: function remoteOp(parent, op) {
-	        if (parent === this._history.head()) {
+	        console.log(parent, this._history.head);
+	        if (parent === this._history.head) {
 	            this.submit(op, _utils.noop);
 	        } else {
 	            var sequence = this._history.getSequence(parent);
@@ -1250,6 +1272,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        this.tail = model.tail;
 	        this.head = model.head;
 	    },
+	    exportModel: function exportModel() {
+	        return {
+	            model: this.model,
+	            length: this.modelLength,
+	            head: this.head,
+	            tail: this.tail
+	        };
+	    },
 	    hasRevision: function hasRevision(r) {
 	        return r in this.model;
 	    },
@@ -1554,9 +1584,9 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var _adapter2 = _interopRequireDefault(_adapter);
 
-	var _scope = __webpack_require__(11);
+	var _peer = __webpack_require__(11);
 
-	var _scope2 = _interopRequireDefault(_scope);
+	var _peer2 = _interopRequireDefault(_peer);
 
 	var _utils = __webpack_require__(6);
 
@@ -1565,43 +1595,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	var DEFAULT_SCOPE = '/';
 
 	(0, _adapter2.default)(window);
-
-	var isFirefox = !!navigator.mozGetUserMedia;
-	var isChrome = !!navigator.webkitGetUserMedia;
-
-	var STUN = {
-	    url: isChrome ? 'stun:stun.l.google.com:19302' : 'stun:23.21.150.121'
-	};
-
-	var TURN = {
-	    url: 'turn:homeo@turn.bistri.com:80',
-	    credential: 'homeo'
-	};
-
-	var ICE = {
-	    iceServers: [STUN]
-	};
-
-	var OPTIONAL = {
-	    optional: [{ RtcDataChannels: true }, { DtlsSrtpKeyAgreement: true }]
-	};
-
-	var OFFER_ANSWER_CONSTRAINTS = {
-	    mandatory: {
-	        OfferToReceiveAudio: false,
-	        OfferToReceiveVideo: false
-	    }
-	};
-
-	if (isChrome) {
-	    var test = /Chrom(e|ium)\/([0-9]+)\./;
-
-	    if (parseInt(navigator.userAgent.match(test)[2]) >= 28) {
-	        TURN.username = 'homeo';
-	    }
-
-	    ICE.iceServers = [STUN, TURN];
-	}
 
 	var createCandidate = function createCandidate() {
 	    var _ref = arguments.length <= 0 || arguments[0] === undefined ? _utils.c : arguments[0];
@@ -1614,7 +1607,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	var createSDP = function createSDP(sdp) {
 	    return new RTCSessionDescription(sdp);
 	};
-
 	var onSDPError = function onSDPError(err) {
 	    return console.error(err);
 	};
@@ -1622,21 +1614,48 @@ return /******/ (function(modules) { // webpackBootstrap
 	var proto = (0, _utils.c)(_eventemitter2.default.prototype, {
 	    // Send a message to all peers, optionally peers in a specific scope.
 
-	    send: function send(msg, config) {
+	    send: function send(msg) {
+	        var config = arguments.length <= 1 || arguments[1] === undefined ? {} : arguments[1];
+
 	        var scope = this.scopes[config.scope || DEFAULT_SCOPE];
-	        scope.send(msg);
+
+	        if (!scope) {
+	            return;
+	        }
+
+	        if (typeof msg !== 'string') {
+	            msg = (0, _utils.stringify)(msg);
+	        }
+
+	        for (var prop in scope) {
+	            scope[prop].send(msg);
+	        }
 	    },
 
 
 	    // Request access to a scope.
 	    createScope: function createScope() {
 	        var name = arguments.length <= 0 || arguments[0] === undefined ? DEFAULT_SCOPE : arguments[0];
+	        var config = arguments.length <= 1 || arguments[1] === undefined ? {} : arguments[1];
+
+	        var scope = this.scopes[config.scope || DEFAULT_SCOPE];
+
+	        if (scope) {
+	            return scope;
+	        }
+
 	        var id = this.id;
 	        var scopes = this.scopes;
 	        var socket = this.socket;
 
+
+	        console.log(name, config);
+
 	        if (!scopes[name]) {
-	            scopes[name] = (0, _scope2.default)(name);
+	            scopes[name] = {};
+	            if (config.getMeta) {
+	                this.metas[name] = config.getMeta;
+	            }
 	            // Send a message to the signalling server to add self to a scope.
 	            // Clients in the same scope will recieve this message and respond
 	            // with an offer.
@@ -1650,34 +1669,49 @@ return /******/ (function(modules) { // webpackBootstrap
 	    },
 
 
-	    // Triggers when a peer has requested to join one of our scopes.
+	    // Triggers when a peer has requested to join one of our scopes
 	    handleOpen: function handleOpen(msg) {
-	        this.acceptRequest(msg.src);
+	        var src = msg.src;
+	        var scope = msg.p.scope;
+
+	        this.acceptRequest(src, scope);
+	    },
+	    handleClose: function handleClose(msg) {
+	        var src = msg.src;
+
+	        this.removePeer(msg.src);
 	    },
 
 
 	    // Begin establishing a connection with peer by creating an offer. SDP and
 	    // ICE info will be sent over signalling server once available.
-	    acceptRequest: function acceptRequest(src) {
+	    acceptRequest: function acceptRequest(src, scope) {
+	        var socket = this.socket;
+	        var id = this.id;
+
+	        var p = this.addPeer(src, scope);
+	        p.offer();
+	    },
+	    addPeer: function addPeer(pid) {
+	        var _this = this;
+
+	        var scope = arguments.length <= 1 || arguments[1] === undefined ? DEFAULT_SCOPE : arguments[1];
 	        var socket = this.socket;
 
-
-	        this.peers[src] = this.createOffer({
-	            onsdp: function onsdp(sdp) {
-	                return socket.send((0, _utils.stringify)({
-	                    t: 'SDP',
-	                    p: { sdp: sdp },
-	                    dst: src
-	                }));
-	            },
-	            onicecandidate: function onicecandidate(candidate) {
-	                return socket.send((0, _utils.stringify)({
-	                    t: 'ICE',
-	                    p: { candidate: candidate },
-	                    dst: src
-	                }));
-	            }
+	        var p = this.peers[pid] = (0, _peer2.default)({ socket: socket, pid: pid, getMeta: this.metas[scope] });
+	        this.scopes[scope][pid] = p;
+	        p.on('data', function (data) {
+	            return _this.emit('data', { scope: scope, data: JSON.parse(data) });
 	        });
+	        p.on('close', function (e) {
+	            return _this.removePeer(pid);
+	        });
+	        return p;
+	    },
+	    removePeer: function removePeer(pid) {
+	        var peer = this.peers[pid];
+	        peer.removeAllListeners();
+	        this.destroyPeerConnection(pid);
 	    },
 
 
@@ -1685,35 +1719,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	    handleSDP: function handleSDP(msg) {
 	        var src = msg.src;
 	        var sdp = msg.p.sdp;
-	        var socket = this.socket;
 
 
 	        if (sdp.type === 'offer') {
-	            ;
-	            this.peers[src] = this.createAnswer({
-	                sdp: sdp,
-	                onsdp: function onsdp(sdp) {
-	                    return socket.send((0, _utils.stringify)({
-	                        t: 'SDP',
-	                        p: { sdp: sdp },
-	                        dst: src
-	                    }));
-	                },
-	                onicecandidate: function onicecandidate(candidate) {
-	                    return socket.send((0, _utils.stringify)({
-	                        t: 'ICE',
-	                        p: { candidate: candidate },
-	                        dst: src
-	                    }));
-	                }
-	            });
+	            var p = this.addPeer(src);
+	            p.answer(sdp);
 	        } else if (sdp.type === 'answer') {
-	            this.peers[src].setRemoteDescription(createSDP(sdp));
+	            this.peers[src].pc.setRemoteDescription(createSDP(sdp));
 	        }
-
-	        this.peers[src].ondatachannel = function (e) {
-	            return window.channel = e.channel;
-	        };
 	    },
 
 
@@ -1726,73 +1739,27 @@ return /******/ (function(modules) { // webpackBootstrap
 	        var peer = this.peers[src];
 
 	        if (peer) {
-	            peer.addIceCandidate(createCandidate(candidate));
-	            for (var i = 0; i < this.candidates.length; i++) {
-	                peer.addIceCandidate(createCandidate(this.candidates[i]));
+	            var candidates = this.candidates[src];
+	            if (candidates) {
+	                for (var prop in candidates) {
+	                    for (var i = 0; i < candidates[prop].length; i++) {
+	                        peer.pc.addIceCandidate(createCandidate(candidates[prop][i]));
+	                    }
+	                }
+	                delete candidates[prop];
 	            }
-	            this.candidates = [];
-	        } else this.candidates.push(this.candidates);
-	    },
-	    handleScopeAvailable: function handleScopeAvailable(msg) {
-	        var scope = msg.p.scope;
-
-	        if (scope === DEFAULT_SCOPE) {
-	            this.emit('ready', scope);
+	            peer.pc.addIceCandidate(createCandidate(candidate));
+	        } else {
+	            if (!this.candidates[src]) {
+	                this.candidates[src] = [];
+	            }
+	            this.candidates[src].push(candidate);
 	        }
 	    },
+	    handleScopeAvailable: function handleScopeAvailable(msg) {
+	        var name = msg.p.name;
 
-
-	    // Accepted request to connect from peer. Create a new RTCPeerConnection for
-	    // the remote peer and send an offer. When an SDP is ready, call
-	    // setLocalDescription and `onsdp` callback. When an ICE candidate is ready,
-	    // call `onIceCandidate` callback.
-	    createOffer: function createOffer(config) {
-	        var peer = new RTCPeerConnection(ICE, OPTIONAL);
-
-	        var channel = window.channel = peer.createDataChannel('test', { reliable: true });
-
-	        channel.onmessage = function (msg) {
-	            return console.log(msg);
-	        };
-	        channel.onerror = function (err) {
-	            return console.error("Channel Error:", err);
-	        };
-
-	        peer.createOffer(function (sdp) {
-	            peer.setLocalDescription(sdp);
-	            config.onsdp(sdp);
-	        }, onSDPError, OFFER_ANSWER_CONSTRAINTS);
-
-	        peer.onicecandidate = function (e) {
-	            console.log(e);
-	            if (e.candidate) {
-	                config.onicecandidate(e.candidate);
-	            }
-	        };
-
-	        return peer;
-	    },
-
-
-	    // Got SDP from remote client. Create a new RTCPeerConnection and send
-	    // answer.
-	    createAnswer: function createAnswer(config) {
-	        var peer = new RTCPeerConnection(ICE, OPTIONAL);
-
-	        peer.onicecandidate = function (e) {
-	            if (e.candidate) {
-	                config.onicecandidate(e.candidate);
-	            }
-	        };
-
-	        peer.setRemoteDescription(createSDP(config.sdp));
-
-	        peer.createAnswer(function (sdp) {
-	            peer.setLocalDescription(sdp);
-	            config.onsdp(sdp);
-	        }, onSDPError, OFFER_ANSWER_CONSTRAINTS);
-
-	        return peer;
+	        this.emit('available', name);
 	    },
 	    onMessage: function onMessage(msg) {
 	        var id = msg.id;
@@ -1810,6 +1777,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	                // Peer is requesting to connect
 	                this.handleOpen(msg);
 	                break;
+	            case 'CLOSE':
+	                this.handleClose(msg);
+	                break;
 	            case 'SDP':
 	                // SDP info from remote peer
 	                this.handleSDP(msg);
@@ -1825,6 +1795,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	            default:
 	                break;
 	        }
+	    },
+	    destroy: function destroy() {
+	        this.socket.send((0, _utils.stringify)({ t: 'CLOSE' }));
+	        for (var prop in this.peers) {
+	            this.removePeer(pid);
+	        }
+	        this.socket.close();
+	    },
+	    destroyPeerConnection: function destroyPeerConnection(pid) {
+	        this.peers[pid].destroy();
+	        delete this.peers[pid];
+	        for (var prop in this.scopes) {
+	            if (pid in this.scopes[prop]) {
+	                delete this.scopes[prop][pid];
+	            }
+	        }
 	    }
 	});
 
@@ -1833,20 +1819,25 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var scopes = {};
 	    var peers = {};
+	    var metas = {}; // ew
 	    var candidates = [];
 	    var socket = new WebSocket('ws://' + document.domain + ':12034');
 
-	    var props = { id: id, scopes: scopes, socket: socket, peers: peers, candidates: candidates };
+	    var props = { id: id, scopes: scopes, socket: socket, peers: peers, metas: metas, candidates: candidates };
 
 	    var obj = (0, _utils.c)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
 	    socket.onopen = function () {
-	        return obj.createScope(DEFAULT_SCOPE);
+	        return obj.emit('ready');
 	    };
 	    socket.onmessage = function (e) {
 	        return obj.onMessage(JSON.parse(e.data));
+	    };
+
+	    window.onunload = function () {
+	        return obj.destroy();
 	    };
 
 	    return obj;
@@ -2092,30 +2083,171 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-	var proto = (0, _utils.c)(_eventemitter2.default.prototype, {
-	    send: function send(msg) {
-	        this.connections.forEach(function (conn) {
-	            return conn.send(msg);
-	        });
-	        return false;
-	    }
-	});
+	var isFirefox = !!navigator.mozGetUserMedia;
+	var isChrome = !!navigator.webkitGetUserMedia;
 
-	// A scope is a list of connections associated with an id (string). When a one
-	// of its connections sends arbitrary data, it will emit a 'message' event.
-	function scope(id) {
-	    var props = {
-	        connections: []
-	    };
+	var STUN = {
+	    url: isChrome ? 'stun:stun.l.google.com:19302' : 'stun:23.21.150.121'
+	};
+
+	var TURN = {
+	    url: 'turn:homeo@turn.bistri.com:80',
+	    credential: 'homeo'
+	};
+
+	var ICE = {
+	    iceServers: [STUN]
+	};
+
+	var OPTIONAL = {
+	    optional: [{ RtcDataChannels: true }, { DtlsSrtpKeyAgreement: true }]
+	};
+
+	var OFFER_ANSWER_CONSTRAINTS = {
+	    mandatory: {
+	        OfferToReceiveAudio: false,
+	        OfferToReceiveVideo: false
+	    }
+	};
+
+	if (isChrome) {
+	    var test = /Chrom(e|ium)\/([0-9]+)\./;
+
+	    if (parseInt(navigator.userAgent.match(test)[2]) >= 28) {
+	        TURN.username = 'homeo';
+	    }
+
+	    ICE.iceServers = [STUN, TURN];
+	}
+
+	var createSDP = function createSDP(sdp) {
+	    return new RTCSessionDescription(sdp);
+	};
+	var handleSDPError = function handleSDPError(err) {
+	    return console.error(err);
+	};
+
+	var proto = (0, _utils.c)({
+	    offer: function offer() {
+	        var _this = this;
+
+	        var pc = this.pc;
+
+	        this.setDataChannel(pc.createDataChannel(this.cid, { reliable: true }));
+
+	        pc.createOffer(function (sdp) {
+	            pc.setLocalDescription(sdp);
+	            _this.onsdp(sdp);
+	        }, handleSDPError, OFFER_ANSWER_CONSTRAINTS);
+
+	        pc.onicecandidate = function (sdp) {
+	            return _this.onicecandidate(sdp);
+	        };
+
+	        return this;
+	    },
+	    answer: function answer(sdp) {
+	        var _this2 = this;
+
+	        var pc = this.pc;
+
+	        pc.onicecandidate = function (e) {
+	            return _this2.onicecandidate(e);
+	        };
+
+	        pc.setRemoteDescription(createSDP(sdp));
+
+	        pc.createAnswer(function (sdp) {
+	            return _this2.onsdp(sdp);
+	        }, handleSDPError, OFFER_ANSWER_CONSTRAINTS);
+
+	        return this;
+	    },
+	    setDataChannel: function setDataChannel(dc) {
+	        var _this3 = this;
+
+	        this.dc = dc;
+	        dc.onmessage = function (msg) {
+	            return _this3.emit('data', msg.data);
+	        };
+	        dc.onopen = function () {
+	            return _this3.dc.send((0, _utils.stringify)({ t: 'meta', p: _this3.getMeta() || {} }));
+	        };
+	    },
+	    send: function send(msg) {
+	        var _this4 = this;
+
+	        if (!this.dc) {
+	            this.messages.push(msg);
+	            return;
+	        }
+
+	        this.dc.send(msg);
+
+	        this.messages.forEach(function (msg) {
+	            return _this4.dc.send(msg);
+	        });
+	        this.messages = [];
+	    },
+	    onsdp: function onsdp(sdp) {
+	        this.pc.setLocalDescription(sdp);
+	        this.socket.send((0, _utils.stringify)({
+	            t: 'SDP',
+	            p: { sdp: sdp },
+	            dst: this.pid
+	        }));
+	    },
+	    onicecandidate: function onicecandidate(e) {
+	        var candidate = e.candidate;
+
+	        if (candidate) {
+	            this.socket.send((0, _utils.stringify)({
+	                t: 'ICE',
+	                p: { candidate: candidate },
+	                dst: this.pid
+	            }));
+	        }
+	    },
+	    destroy: function destroy() {
+	        if (this.dc) {
+	            this.dc.close();
+	        }
+
+	        if (this.pc) {
+	            this.pc.close();
+	        }
+	    }
+	}, _eventemitter2.default.prototype);
+
+	var peer = function peer(config) {
+	    var _this5 = this;
+
+	    var pc = new RTCPeerConnection(ICE, OPTIONAL);
+	    var messages = [];
+
+	    var pid = config.pid;
+	    var _config$cid = config.cid;
+	    var cid = _config$cid === undefined ? (0, _utils.uuid)() : _config$cid;
+	    var socket = config.socket;
+
+	    var props = { pid: pid, cid: cid, pc: pc, socket: socket, messages: messages, getMeta: config.getMeta || _utils.noop, dc: null };
 
 	    var obj = (0, _utils.c)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
-	    return obj;
-	}
+	    pc.ondatachannel = function (e) {
+	        return obj.setDataChannel(e.channel);
+	    };
+	    // TODO: below
+	    pc.onclose = function (e) {
+	        return _this5.emit('close', e);
+	    };
 
-	exports.default = scope;
+	    return obj;
+	};
+
+	exports.default = peer;
 
 /***/ },
 /* 12 */

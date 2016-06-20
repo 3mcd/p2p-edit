@@ -33,7 +33,8 @@ new WebSocketServer({
 
 const SERVER_IDENTIFIER = 's';
 
-var scopes = {};
+const scopes = {};
+const clients = {};
 
 const messageScopeAvailable = (name) => ({
     id: SERVER_IDENTIFIER,
@@ -58,48 +59,39 @@ function onRequest(socket) {
         }
     });
 
-    ws.on('close', () => truncateScopes(ws))
+    // ws.on('close', () => onClose(ws))
 }
 
-function addClient (scope, client) {
-    console.log(`Adding client with id ${client} to scope ${scope}.`);
-    const id = client.id;
-    const ws = client.ws;
+function addClient (id, ws, scope) {
+    console.log(`Adding client with id ${id} to scope ${scope}.`);
 
-    if (scopes[scope]) {
-        if (!scopes[scope].find((client) => client.id === id)) {
-            scopes[scope].push(client);
-        }
-    } else {
-        scopes[scope] = [client];
-        Object.keys(scopes, (scope) => sendScopeAvailable(scope, ws));
+    if (!scopes[scope]) {
+        scopes[scope] = {};
     }
 
-    console.log('Sending scope available:', scope);
+    scopes[scope][id] = ws;
+    clients[id] = ws;
+
+    Object.keys(scopes, (scope) => sendScopeAvailable(scope, ws));
 
     sendDirectScopeAvailable(scope, ws);
 }
 
 function findClient (id) {
-    for (var prop in scopes) {
-        for (var j = 0; j < scopes[prop].length; j++) {
-            if (scopes[prop][j].id === id) {
-                return scopes[prop][j];
-            }
+    for (var name in scopes) {
+        if (id in scopes[name]) {
+            return scopes[name][id];
         }
     }
     return null;
 }
 
-function findClientByWS (ws) {
-    for (var prop in scopes) {
-        for (var j = 0; j < scopes[prop].length; j++) {
-            if (scopes[prop][j].ws === ws) {
-                return scopes[prop][j];
-            }
+function getClientId (ws) {
+    for (var id in clients) {
+        if (ws === clients[id]) {
+            return id;
         }
     }
-    return null;
 }
 
 function send(msg, ws) {
@@ -115,14 +107,12 @@ function send(msg, ws) {
         return;
     }
 
-    const srcClient = findClientByWS(ws);
+    const src = getClientId(ws);
 
-    if (!srcClient) {
+    if (!src) {
         console.error('A message was sent from an unregistered client.');
         return;
     }
-
-    const src = srcClient.id;
 
     msg.src = src;
 
@@ -130,14 +120,16 @@ function send(msg, ws) {
     const dst = msg.dst;
 
     if (dst) {
-        let client = findClient(dst);
+        let client = clients[dst];
         if (client) {
-            client.ws.sendUTF(data);
+            client.sendUTF(data);
             return;
         }
     }
 
     const scope = scopes[msg.p.scope];
+
+    console.log(`${msg.t} to ${msg.p.scope}: ${JSON.stringify(msg.p)}`);
 
     if (scope === undefined) {
         console.error(`Message from ${src} was sent without a destination client or scope.`);
@@ -147,11 +139,9 @@ function send(msg, ws) {
         return;
     }
 
-    for (var i = 0; i < scope.length; i++) {
-        if (scope[i] && scope[i].ws !== ws) {
-            try {
-                scope[i].ws.sendUTF(data);
-            } catch(e) { }
+    for (var prop in scope) {
+        if (scope[prop] !== ws) {
+            scope[prop].sendUTF(data);
         }
     }
 }
@@ -160,20 +150,45 @@ function send(msg, ws) {
 function onOpen(msg, ws) {
     const scopes = msg.p.scopes;
     scopes.forEach((scope) => {
-        const client = { ws, id: msg.p.id };
-        addClient(scope, client);
+        addClient(msg.p.id, ws, scope);
         send(msg, ws);
     });
 }
 
+function onClose(msg, ws) {
+    const id = getClientId(ws);
+    const client = clients[id];
+
+    console.log(`Removing client with id ${id}.`);
+
+    msg = Object.assign({ p: { scopes: [] } }, msg);
+
+    for (var name in scopes) {
+        if (id in scopes[name]) {
+            msg.p.scopes.push(name);
+        }
+    }
+
+    send(msg, ws);
+
+
+    if (client && client.closeReasonCode === -1) {
+        client.close();
+        delete clients[id];
+    }
+}
+
 function onMessage(msg, ws) {
-    console.log('Recieved message: ', msg);
+    // console.log('Recieved message: ', msg);
     switch (msg.t) {
         case 'CP':
             checkPresence(msg, ws);
             break;
         case 'OPEN':
             onOpen(msg, ws);
+            break;
+        case 'CLOSE':
+            onClose(msg, ws);
             break;
         default:
             send(msg, ws);
@@ -196,21 +211,6 @@ function swapArray(arr) {
     }
 
     return swapped;
-}
-
-function truncateScopes(websocket) {
-    for (var name in scopes) {
-        let scope = scopes[name];
-        for (let i = 0; i < scope.length; i++) {
-            if (scope[i] === websocket) {
-                delete scope[i];
-            }
-        }
-        scopes[name] = swapArray(scope);
-        if (scopes && scopes[name] && !scopes[name].length) {
-            delete scopes[name];
-        }
-    }
 }
 
 app.listen(12034);

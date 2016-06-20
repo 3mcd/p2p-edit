@@ -13,10 +13,10 @@ var App = React.createClass({
     },
 
     componentWillMount () {
-        client.on('ready', function () {
-            console.log(client);
-        })
-        // this.model = client.model(this.props.model);
+        client.on('ready', () => {
+            this.model = client.model('/');
+            this.model.adapter(client.adapters.CM, this.editor);
+        });
     },
 
     componentWillUnmount() {
@@ -24,7 +24,7 @@ var App = React.createClass({
     },
 
     componentDidMount() {
-        const editor = CodeMirror.fromTextArea(this.$editor, {
+        this.editor = CodeMirror.fromTextArea(this.$editor, {
             lineNumbers: true,
             lineWrapping: true,
             indentUnit: 4,
@@ -34,8 +34,6 @@ var App = React.createClass({
             inputStyle: 'textarea',
             autofocus: true
         });
-
-        // this.model.adapter(client.adapters.CM, editor);
     },
 
     render () {

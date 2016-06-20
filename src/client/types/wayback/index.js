@@ -15,6 +15,15 @@ const proto = {
         this.head = model.head;
     },
 
+    exportModel() {
+        return {
+            model: this.model,
+            length: this.modelLength,
+            head: this.head,
+            tail: this.tail
+        };
+    },
+
     hasRevision(r) {
         return r in this.model;
     },

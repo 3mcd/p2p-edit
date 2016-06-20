@@ -16,11 +16,12 @@ const proto = c(EventEmitter.prototype, {
     broadcast(op, r) {
         const id = this.id;
         const parent = this._history.getRevision(r).parent;
-        this.emit('broadcast', { id, op, r });
+        this.emit('broadcast', { id, op, r: parent });
     },
 
     remoteOp(parent, op) {
-        if (parent === this._history.head()) {
+        console.log(parent, this._history.head);
+        if (parent === this._history.head) {
             this.submit(op, noop);
         } else {
             let sequence = this._history.getSequence(parent);
