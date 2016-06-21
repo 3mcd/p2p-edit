@@ -2,7 +2,8 @@ import EventEmitter from 'eventemitter3';
 
 import adapter from './adapter';
 import peer from './peer';
-import { c, stringify, assign, noop } from '../../utils';
+
+import { c, stringify, assign, noop, uuid } from '../../utils';
 
 const DEFAULT_SCOPE = '/';
 
@@ -16,49 +17,28 @@ const onSDPError = (err) => console.error(err);
 
 const proto = c(EventEmitter.prototype, {
     // Send a message to all peers, optionally peers in a specific scope.
-    send(msg, config = {}) {
-        const scope = this.scopes[config.scope || DEFAULT_SCOPE];
-        
-        if (!scope) {
-            return;
-        }
-
+    send(msg, scope = DEFAULT_SCOPE) {
         if (typeof msg !== 'string') {
             msg = stringify(msg);
         }
-
-        for (var prop in scope) {
-            scope[prop].send(msg);
+        
+        for (var prop in this.peers) {
+            this.peers[prop].send(msg, scope);
         }
     },
 
     // Request access to a scope.
-    createScope(name = DEFAULT_SCOPE, config = {}) {
-        const scope = this.scopes[config.scope || DEFAULT_SCOPE];
+    createScope(scope = DEFAULT_SCOPE, config = {}) {
+        const { id, socket } = this;
         
-        if (scope) {
-            return scope;
+        socket.send(stringify({
+            t: 'OPEN',
+            p: { id, scopes: [scope || DEFAULT_SCOPE] }
+        }));
+
+        if (config.getMeta) {
+            this.metas[scope] = config.getMeta;
         }
-
-        const { id, scopes, socket } = this;
-
-        console.log(name, config);
-
-        if (!scopes[name]) {
-            scopes[name] = {};
-            if (config.getMeta) {
-                this.metas[name] = config.getMeta;
-            }
-            // Send a message to the signalling server to add self to a scope.
-            // Clients in the same scope will recieve this message and respond
-            // with an offer.
-            socket.send(stringify({
-                t: 'OPEN',
-                p: { id, scopes: [name] }
-            }));
-        }
-
-        return scopes[name];
     },
 
     // Triggers when a peer has requested to join one of our scopes
@@ -72,64 +52,82 @@ const proto = c(EventEmitter.prototype, {
         this.removePeer(msg.src);
     },
 
-
     // Begin establishing a connection with peer by creating an offer. SDP and
     // ICE info will be sent over signalling server once available.
     acceptRequest(src, scope) {
         const { socket, id } = this;
-        const p = this.addPeer(src, scope);
+        const p = this.addConnection({ pid: src, scope });
         p.offer();
     },
 
-    addPeer(pid, scope = DEFAULT_SCOPE) {
+    addConnection(config) {
+        const { pid, cid } = config;
         const { socket } = this;
-        const p = this.peers[pid] = peer({ socket, pid, getMeta: this.metas[scope] });
-        this.scopes[scope][pid] = p;
-        p.on('data', (data) => this.emit('data', { scope, data: JSON.parse(data) }));
-        p.on('close', (e) => this.removePeer(pid));
-        return p;
+
+        const scope = config.scope || DEFAULT_SCOPE;
+
+        var p;
+
+        if (this.peers[pid]) {
+            p = this.peers[pid];
+        } else {
+            p = this.peers[pid] = peer({ id: pid, socket });
+        }
+
+        if (p._connections[cid]) {
+            return;
+        }
+        
+        const c = p.addConnection({ id: cid || uuid(), scope, getMeta: this.metas[scope] });
+
+        c.on('data', (data) => this.emit('data', { scope, data: JSON.parse(data) }));
+        c.on('close', (e) => this.removePeer(pid));
+
+        return c;
     },
 
     removePeer(pid) {
-        const peer = this.peers[pid];
-        peer.removeAllListeners();
-        this.destroyPeerConnection(pid);
+        const p = this.peers[pid];
+
+        p.destroy();
+
+        delete this.peers[pid];
     },
 
     // Recieved SDP info from remote peer.
     handleSDP(msg) {
-        const { src, p: { sdp } } = msg;
+        const { src, p: { cid, sdp, scope } } = msg;
 
         if (sdp.type === 'offer') {
-            let p = this.addPeer(src);
-            p.answer(sdp);
+            let c = this.addConnection({ pid: src, cid, scope });
+            c.answer(sdp);
         } else if (sdp.type === 'answer') {
-            this.peers[src].pc.setRemoteDescription(createSDP(sdp));
+            this.peers[src].getConnection(cid).pc.setRemoteDescription(createSDP(sdp));
         } 
     },
 
     // Recieved ICE info from remote peer.
     handleICE(msg) {
-        const { src, p: { candidate } } = msg;
+        const { src, p: { cid, candidate } } = msg;
 
-        const peer = this.peers[src];
+        const c = this.peers[src].getConnection(cid);
 
-        if (peer) {
-            let candidates = this.candidates[src];
+        if (c) {
+            let candidates = this.candidates[cid];
             if (candidates) {
                 for (var prop in candidates) {
                     for (var i = 0; i < candidates[prop].length; i++) {
-                        peer.pc.addIceCandidate(createCandidate(candidates[prop][i]));
+                        c.pc.addIceCandidate(createCandidate(candidates[prop][i]));
                     }
                 }
                 delete candidates[prop];
             }
-            peer.pc.addIceCandidate(createCandidate(candidate));
+            c.pc.addIceCandidate(createCandidate(candidate));
         } else {
-            if (!this.candidates[src]) {
-                this.candidates[src] = [];
+            if (!this.candidates[cid]) {
+                this.candidates[cid] = [];
             }
-            this.candidates[src].push(candidate);
+            this.candidates[cid].push(candidate);
         }
     },
 
@@ -174,29 +172,18 @@ const proto = c(EventEmitter.prototype, {
             this.removePeer(pid);
         }
         this.socket.close();
-    },
-
-    destroyPeerConnection(pid) {
-        this.peers[pid].destroy();
-        delete this.peers[pid];
-        for (var prop in this.scopes) {
-            if (pid in this.scopes[prop]) {
-                delete this.scopes[prop][pid];
-            }
-        }
     }
 
 });
 
 const webRTCClient = function (config) {
     const { id } = config;
-    const scopes = {};
     const peers = {};
     const metas = {}; // ew
     const candidates = [];
     const socket = new WebSocket('ws://' + document.domain + ':12034');
 
-    const props = { id, scopes, socket, peers, metas, candidates };
+    const props = { id, socket, peers, metas, candidates };
 
     const obj = c(proto, props);
 

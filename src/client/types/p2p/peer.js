@@ -1,147 +1,110 @@
 import EventEmitter from 'eventemitter3';
 
-import { c, uuid, stringify, noop } from '../../utils';
+import connection from './connection';
 
-const isFirefox = !!navigator.mozGetUserMedia;
-const isChrome = !!navigator.webkitGetUserMedia;
+import { c, uuid, stringify } from '../../utils';
 
-const STUN = {
-    url: isChrome ? 'stun:stun.l.google.com:19302' : 'stun:23.21.150.121'
-};
-
-const TURN = {
-    url: 'turn:homeo@turn.bistri.com:80',
-    credential: 'homeo'
-};
-
-const ICE = {
-    iceServers: [STUN]
-};
-
-const OPTIONAL = {
-    optional: [
-        { RtcDataChannels: true },
-        { DtlsSrtpKeyAgreement: true }
-    ]
-};
-
-const OFFER_ANSWER_CONSTRAINTS = {
-    mandatory: {
-        OfferToReceiveAudio: false,
-        OfferToReceiveVideo: false
-    }
-};
-
-if (isChrome) {
-    let test = /Chrom(e|ium)\/([0-9]+)\./;
-
-    if (parseInt(navigator.userAgent.match(test)[2]) >= 28) {
-        TURN.username = 'homeo';
-    }
-
-    ICE.iceServers = [STUN, TURN];
-}
-
-const createSDP = (sdp) => new RTCSessionDescription(sdp);
-const handleSDPError = (err) => console.error(err);
+const DEFAULT_SCOPE = '/';
 
 const proto = c({
 
-    offer() {
-        const pc = this.pc;
-
-        this.setDataChannel(pc.createDataChannel(this.cid, { reliable: true }));
-
-        pc.createOffer((sdp) => {
-            pc.setLocalDescription(sdp);
-            this.onsdp(sdp);
-        }, handleSDPError, OFFER_ANSWER_CONSTRAINTS);
-
-        pc.onicecandidate = (sdp) => this.onicecandidate(sdp);
-
-        return this;
-    },
-
-    answer(sdp) {
-        const pc = this.pc;
-
-        pc.onicecandidate = (e) => this.onicecandidate(e);
-
-        pc.setRemoteDescription(createSDP(sdp));
-
-        pc.createAnswer((sdp) => this.onsdp(sdp), handleSDPError, OFFER_ANSWER_CONSTRAINTS);
-
-        return this;
-    },
-
-    setDataChannel(dc) {
-        this.dc = dc;
-        dc.onmessage = (msg) => this.emit('data', msg.data);
-        dc.onopen = () => this.dc.send(stringify({ t: 'meta', p: this.getMeta() || {} }));
-    },
-
-    send(msg) {
-        if (!this.dc) {
-            this.messages.push(msg);
+    send(msg, scope = DEFAULT_SCOPE) {
+        if (!this._scopes[scope]) {
             return;
         }
 
-        this.dc.send(msg);
+        for (var cid in this._scopes[scope]) {
+            this._scopes[scope][cid].send(msg);
+        }
+    },
+    
+    addConnection(config) {
+        const { id, getMeta, scope } = config;
+        const c = connection({ id, getMeta, pid: this.id, socket: this._socket });
 
-        this.messages.forEach((msg) => this.dc.send(msg));
-        this.messages = [];
+        this._connections[id] = c;
+
+        c.on('sdp', (sdp) => this.handleSDP(c, sdp));
+        c.on('candidate', (sdp) => this.handleCandidate(c, sdp));
+
+        if (scope) {
+            this.addToScope(scope, c);
+        }
+
+        return c;
     },
 
-    onsdp(sdp) {
-        this.pc.setLocalDescription(sdp);
-        this.socket.send(
+    handleSDP(c, sdp) {
+        const scope = this.getConnectionScope(c);
+        this._socket.send(
             stringify({
                 t: 'SDP',
-                p: { sdp },
-                dst: this.pid
+                p: { cid: c.id, sdp, scope },
+                dst: this.id
             })
         );
     },
 
-    onicecandidate(e) {
-        const { candidate } = e;
-        if (candidate) {
-            this.socket.send(
-                stringify({
-                    t: 'ICE',
-                    p: { candidate },
-                    dst: this.pid
-                })
-            );
+    handleCandidate(c, candidate) {
+        this._socket.send(
+            stringify({
+                t: 'ICE',
+                p: { cid: c.id, candidate },
+                dst: this.id
+            })
+        );
+    },
+
+    getConnectionScope(c) {
+        for (var name in this._scopes) {
+            for (var cid in this._scopes[name]) {
+                if (this._scopes[name][cid] === c) {
+                    return name;
+                }
+            }
         }
     },
 
-    destroy() {
-        if (this.dc) {
-            this.dc.close();
+    getConnection(cid) {
+        if (this._connections[cid]) {
+            return this._connections[cid];
+        }
+        return null;
+    },
+
+    addToScope(scope, c) {
+        if (!this._scopes[scope]) {
+            this._scopes[scope] = {};
         }
 
-        if (this.pc) {
-            this.pc.close();
+        console.log(scope);
+        console.log(this._scopes[scope] = {});
+
+        this._scopes[scope][c.id] = c;
+    },
+
+    destroy() {
+        this.removeAllListeners();
+
+        for (var prop in this._connections) {
+            this._connections[prop].destroy();
         }
     }
 
 }, EventEmitter.prototype);
 
 const peer = function (config) {
-    const pc = new RTCPeerConnection(ICE, OPTIONAL);
-    const messages = [];
-
-    const { pid, cid = uuid(), socket } = config;
-    const props = { pid, cid, pc, socket, messages, getMeta: config.getMeta || noop, dc: null };
+    const { id, socket } = config;
+    const props = {
+        id,
+        _socket: socket,
+        _connections: {},
+        _scopes: {}
+    };
 
     const obj = c(proto, props);
 
     EventEmitter.call(obj);
-
-    pc.ondatachannel = (e) => obj.setDataChannel(e.channel);
-    // TODO: below
-    pc.onclose = (e) => this.emit('close', e);
 
     return obj;
 };

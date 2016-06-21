@@ -6,15 +6,9 @@ var client = p2pedit();
 
 var App = React.createClass({
 
-    getInitialState () {
-        return {
-            text: ''
-        };
-    },
-
     componentWillMount () {
         client.on('ready', () => {
-            this.model = client.model('/');
+            this.model = client.model(this.props.model);
             this.model.adapter(client.adapters.CM, this.editor);
         });
     },

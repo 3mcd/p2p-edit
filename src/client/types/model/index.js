@@ -13,6 +13,10 @@ const proto = c(EventEmitter.prototype, {
         spec.install();
     },
 
+    sync() {
+        this._adapters.forEach((a) => a.update());
+    },
+
     broadcast(op, r) {
         const id = this.id;
         const parent = this._history.getRevision(r).parent;
@@ -20,7 +24,6 @@ const proto = c(EventEmitter.prototype, {
     },
 
     remoteOp(parent, op) {
-        console.log(parent, this._history.head);
         if (parent === this._history.head) {
             this.submit(op, noop);
         } else {

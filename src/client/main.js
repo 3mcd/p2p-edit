@@ -16,6 +16,9 @@ const createMessage = (t, p) => ({ t, p });
 const proto = c({
 
     model(id, text) {
+        id = id || DEFAULT_SCOPE;
+        console.log(`Attempting to create scope ${id}.`);
+
         if (this.models[id]) {
             return this.models[id];
         }
@@ -23,7 +26,7 @@ const proto = c({
         const m = model(id, text);
         this.models[id] = m;
 
-        m.on('broadcast', (payload) => this.broadcast(payload));
+        m.on('broadcast', (payload) => this.broadcast(payload, m));
         m.on('resync', noop);
 
         this._RTC.createScope(id, {
@@ -32,14 +35,14 @@ const proto = c({
                 history: m.exportHistory()
             })
         });
-        this._RTC.on('data', (...args) => this.handleMessage(...args));
 
         return m;
     },
 
-    broadcast(p) {
+    broadcast(p, m) {
+        console.log(m);
         const msg = createMessage('op', p);
-        this._RTC.send(msg, { scope: p.id });
+        this._RTC.send(msg, p.id);
     },
 
     handleOpPayload(p) {
@@ -51,6 +54,7 @@ const proto = c({
         const { model, history } = p;
         this.models[id].importModel(model);
         this.models[id].importHistory(history);
+        this.models[id].sync();
     },
 
     handleMessage(msg) {
@@ -87,6 +91,8 @@ const p2pedit = function (config = {}) {
         obj.model(DEFAULT_SCOPE);
         obj.emit('ready');
     });
+
+    rtc.on('data', (...args) => obj.handleMessage(...args));
 
     EventEmitter.call(obj);
 

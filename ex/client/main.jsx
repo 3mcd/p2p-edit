@@ -12,4 +12,4 @@ var model = window.location.hash.replace('#', '');
 ReactDOM.render(<App model={model} />, $app);
 ReactDOM.render(<App model={model} />, $app2);
 ReactDOM.render(<App model={'test'} />, $app3);
-ReactDOM.render(<App model={'test'} />, $app4);
+// ReactDOM.render(<App model={'test'} />, $app4);

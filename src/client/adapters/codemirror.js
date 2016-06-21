@@ -13,7 +13,7 @@ function cmAdapter(model, sync, editor) {
 
         switch (origin) {
             case '+input':
-                if (removed) {
+                if (removed && removed[0]) {
                     model.delete(pos[0], pos[1] - pos[0]);
                 }
                 model.insert(pos[0], text);
