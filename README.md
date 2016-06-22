@@ -50,9 +50,9 @@ function adapter(model, sync, dependency) {
         if (change.type === 'delete') {
             model.delete(change.from, change.count);
         } else if (change.type === 'insert') {
-            model.insert(pos[0], text);
+            model.insert(change.from, change.text);
         }
-
+        // Call update on other adapter instances within same model.
         sync();
     }
 
@@ -73,6 +73,8 @@ function adapter(model, sync, dependency) {
 ```
 
 Adapters will be executed with the model, a `sync` function, and any additional arguments you pass to `client#adapter()`. They should return an object with `install`, `uninstall` and `update` functions.
+
+A typical pattern would be to subscribe to changes on your dependency (like a textarea), map those changes to model inserts/deletes, and call `sync`.
 
 The `update` function is triggered when handshake data from a peer is recieved, and when `sync` is called by other instances of the same adapter.
 
