@@ -575,12 +575,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 	var proto = (0, _utils.create)(_eventemitter2.default.prototype, {
-	    adapter: function adapter(a) {
+	    adapter: function adapter(factory) {
 	        var _this = this;
 
 	        var sync = function sync() {
 	            return _this._adapters.forEach(function (a) {
-	                return a !== spec ? a.update() : _utils.noop;
+	                return a !== adapter ? a.update() : _utils.noop;
 	            });
 	        };
 
@@ -588,9 +588,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	            args[_key - 1] = arguments[_key];
 	        }
 
-	        var spec = a.apply(undefined, [this, sync].concat(args));
-	        this._adapters.push(spec);
-	        spec.install();
+	        var adapter = factory.apply(undefined, [this, sync].concat(args));
+	        this._adapters.push(adapter);
+	        adapter.install();
 	    },
 	    sync: function sync() {
 	        this._adapters.forEach(function (a) {

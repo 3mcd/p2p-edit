@@ -4,13 +4,13 @@
   "description": "",
   "main": "ex/app.js",
   "scripts": {
-    "postinstall": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1",
     "build": "webpack",
-    "watch": "find src | entr -r npm run build",
-    "dev": "npm run watch & npm run ex",
+    "dev": "npm run signal & npm run watch & npm run ex",
+    "ex": "npm run signal & node ex/app.js",
+    "postinstall": "npm run build",
     "signal": "node ./src/server/signaler.js",
-    "ex": "node ex/app.js"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "watch": "find src | entr -r npm run build"
   },
   "author": "",
   "license": "ISC",

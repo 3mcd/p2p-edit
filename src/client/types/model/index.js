@@ -6,11 +6,11 @@ import wayback from '../wayback';
 
 const proto = create(EventEmitter.prototype, {
 
-    adapter(a, ...args) {
-        const sync = () => this._adapters.forEach((a) => a !== spec ? a.update() : noop);
-        const spec = a(this, sync, ...args);
-        this._adapters.push(spec);
-        spec.install();
+    adapter(factory, ...args) {
+        const sync = () => this._adapters.forEach((a) => a !== adapter ? a.update() : noop);
+        const adapter = factory(this, sync, ...args);
+        this._adapters.push(adapter);
+        adapter.install();
     },
 
     sync() {
