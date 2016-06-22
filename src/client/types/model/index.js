@@ -1,10 +1,10 @@
 import EventEmitter from 'eventemitter3';
 import { type } from 'ot-text-tp2';
 
-import { c, noop } from '../../utils';
+import { create, noop } from '../../utils';
 import wayback from '../wayback';
 
-const proto = c(EventEmitter.prototype, {
+const proto = create(EventEmitter.prototype, {
 
     adapter(a, ...args) {
         const sync = () => this._adapters.forEach((a) => a !== spec ? a.update() : noop);
@@ -17,10 +17,16 @@ const proto = c(EventEmitter.prototype, {
         this._adapters.forEach((a) => a.update());
     },
 
+    import(model, history) {
+        this.importModel(model);
+        this.importHistory(history);
+        this.sync();
+    },
+
     broadcast(op, r) {
         const id = this.id;
         const parent = this._history.getRevision(r).parent;
-        this.emit('broadcast', { id, op, r: parent });
+        this.emit('broadcast', { op, r: parent });
     },
 
     remoteOp(parent, op) {
@@ -84,7 +90,7 @@ const model = function (id, text = '') {
 
     const props = { id, _snapshot, _history, _adapters: [] };
 
-    const obj = c(proto, props);
+    const obj = create(proto, props);
 
     EventEmitter.call(obj);
 

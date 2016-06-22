@@ -3,7 +3,7 @@ import EventEmitter from 'eventemitter3';
 import adapter from './adapter';
 import peer from './peer';
 
-import { c, stringify, assign, noop, uuid } from '../../utils';
+import { create, stringify, uuid } from '../../utils';
 
 const DEFAULT_SCOPE = '/';
 
@@ -15,7 +15,7 @@ const createCandidate = ({ sdpMLineIndex, candidate } = c) =>
 const createSDP = (sdp) => new RTCSessionDescription(sdp);
 const onSDPError = (err) => console.error(err);
 
-const proto = c(EventEmitter.prototype, {
+const proto = create(EventEmitter.prototype, {
     // Send a message to all peers, optionally peers in a specific scope.
     send(msg, scope = DEFAULT_SCOPE) {
         if (typeof msg !== 'string') {
@@ -49,7 +49,7 @@ const proto = c(EventEmitter.prototype, {
 
     handleClose(msg) {
         const { src } = msg;
-        this.removePeer(msg.src);
+        this.removePeer(src);
     },
 
     // Begin establishing a connection with peer by creating an offer. SDP and
@@ -72,6 +72,7 @@ const proto = c(EventEmitter.prototype, {
             p = this.peers[pid];
         } else {
             p = this.peers[pid] = peer({ id: pid, socket });
+            p.on('close', (e) => this.removePeer(pid));
         }
 
         if (p._connections[cid]) {
@@ -81,7 +82,6 @@ const proto = c(EventEmitter.prototype, {
         const c = p.addConnection({ id: cid || uuid(), scope, getMeta: this.metas[scope] });
 
         c.on('data', (data) => this.emit('data', { scope, data: JSON.parse(data) }));
-        c.on('close', (e) => this.removePeer(pid));
 
         return c;
     },
@@ -89,9 +89,11 @@ const proto = c(EventEmitter.prototype, {
     removePeer(pid) {
         const p = this.peers[pid];
 
-        p.destroy();
-
-        delete this.peers[pid];
+        // Peer may have closed from DataConnection close already.
+        if (p) {
+            p.destroy();
+            delete this.peers[pid];
+        }
     },
 
     // Recieved SDP info from remote peer.
@@ -139,8 +141,6 @@ const proto = c(EventEmitter.prototype, {
     onMessage(msg) {
         const { id, t } = msg;
 
-        console.log(msg);
-
         if (id === this.id) {
             return;
         }
@@ -169,6 +169,7 @@ const proto = c(EventEmitter.prototype, {
     destroy() {
         this.socket.send(stringify({ t: 'CLOSE' }));
         for (var prop in this.peers) {
+            let pid = this.peers[prop].id;
             this.removePeer(pid);
         }
         this.socket.close();
@@ -176,7 +177,7 @@ const proto = c(EventEmitter.prototype, {
 
 });
 
-const webRTCClient = function (config) {
+const rtcClient = function (config) {
     const { id } = config;
     const peers = {};
     const metas = {}; // ew
@@ -185,7 +186,7 @@ const webRTCClient = function (config) {
 
     const props = { id, socket, peers, metas, candidates };
 
-    const obj = c(proto, props);
+    const obj = create(proto, props);
 
     EventEmitter.call(obj);
 
@@ -197,4 +198,4 @@ const webRTCClient = function (config) {
     return obj;
 }
 
-export default webRTCClient;
+export default rtcClient;

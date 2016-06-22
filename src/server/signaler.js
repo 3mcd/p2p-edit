@@ -171,7 +171,6 @@ function onClose(msg, ws) {
 
     send(msg, ws);
 
-
     if (client && client.closeReasonCode === -1) {
         client.close();
         delete clients[id];

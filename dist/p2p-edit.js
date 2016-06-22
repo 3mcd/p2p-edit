@@ -68,88 +68,152 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var _model3 = _interopRequireDefault(_model2);
 
-	var _utils = __webpack_require__(6);
-
 	var _p2p = __webpack_require__(9);
 
 	var _p2p2 = _interopRequireDefault(_p2p);
 
-	var _codemirror = __webpack_require__(13);
-
-	var _codemirror2 = _interopRequireDefault(_codemirror);
+	var _utils = __webpack_require__(6);
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-	var DEFAULT_SCOPE = '/';
+	/**
+	 * The default model identifier.
+	 * @type {String}
+	 */
+	var DEFAULT_MODEL = '/';
 
+	/**
+	 * Types of messages sent from peers.
+	 * @type {Object}
+	 */
 	var MESSAGE_TYPES = {
-	    OP: 'op'
+	    OP: 'op', // Broadcast from remote models.
+	    META: 'meta' // Sent from rtcClient connections once established.
 	};
 
+	/**
+	 * Create a message with a given message type and payload.
+	 * @param  {String} t A valid type from MESSAGE_TYPES.
+	 * @param  {Object} p Data to send.
+	 */
 	var createMessage = function createMessage(t, p) {
 	    return { t: t, p: p };
 	};
 
-	var proto = (0, _utils.c)({
-	    model: function model(id, text) {
+	/**
+	 * The public p2pedit API. Inherits from EventEmitter.
+	 * @type {Object}
+	 */
+	var proto = (0, _utils.create)({
+	    /**
+	     * Retrieve an existing or new text model. The text model contains the
+	     * snapshot of the current state of the document and methods to integrate
+	     * TP2 operations.
+	     * @param  {String} id   Model identifier. Optional.
+	     * @param  {String} text Initial text of the model. Optional.
+	     * @return {Object}      Text model.
+	     */
+
+	    model: function model() {
 	        var _this = this;
 
-	        id = id || DEFAULT_SCOPE;
-	        console.log('Attempting to create scope ' + id + '.');
+	        var id = arguments.length <= 0 || arguments[0] === undefined ? DEFAULT_MODEL : arguments[0];
+	        var text = arguments.length <= 1 || arguments[1] === undefined ? '' : arguments[1];
 
-	        if (this.models[id]) {
-	            return this.models[id];
+	        // If a text model with the id exists, return it.
+	        if (this._models[id]) {
+	            return this._models[id];
 	        }
 
+	        // Create a new text model.
 	        var m = (0, _model3.default)(id, text);
-	        this.models[id] = m;
 
+	        this._models[id] = m;
+
+	        // Set up listeners for the model.
+	        // When the model is updated locally, it will emit a broadcast event
+	        // with an operation.
 	        m.on('broadcast', function (payload) {
-	            return _this.broadcast(payload, m);
+	            return _this.broadcastOp(payload, m.id);
 	        });
+	        // TODO: Implement concurrency control.
 	        m.on('resync', _utils.noop);
 
+	        // Connect to a scope on the server. This method will create the scope
+	        // on the signaling server if it doesn't exist and place our WebSocket
+	        // connection within it. Future clients connecting to the same scope
+	        // will be connected to our client.
 	        this._RTC.createScope(id, {
+	            // getMeta is executed every time a client in this scope connects to
+	            // us. We use it to send the initial snapshot and revision history
+	            // of our model.
 	            getMeta: function getMeta() {
-	                return {
+	                return createMessage(MESSAGE_TYPES.META, {
 	                    model: m.exportModel(),
 	                    history: m.exportHistory()
-	                };
+	                });
 	            }
 	        });
 
 	        return m;
 	    },
-	    broadcast: function broadcast(p, m) {
-	        console.log(m);
-	        var msg = createMessage('op', p);
-	        this._RTC.send(msg, p.id);
-	    },
-	    handleOpPayload: function handleOpPayload(p) {
-	        var id = p.id;
-	        var op = p.op;
-	        var r = p.r;
 
-	        this.models[id].remoteOp(r, op);
-	    },
-	    handleMeta: function handleMeta(p, id) {
-	        var model = p.model;
-	        var history = p.history;
 
-	        this.models[id].importModel(model);
-	        this.models[id].importHistory(history);
-	        this.models[id].sync();
+	    /**
+	     * Broadcast an operation to clients editing the same model.
+	     * @param  {Object} payload Data to send.
+	     * @param  {String} id      Model identifier.
+	     */
+	    broadcastOp: function broadcastOp(payload, id) {
+	        var op = payload.op;
+	        var r = payload.r;
+
+	        var msg = createMessage(MESSAGE_TYPES.OP, { id: id, op: op, r: r });
+	        this._RTC.send(msg, id);
 	    },
+
+
+	    /**
+	     * Apply a remote operation to a specific model.
+	     * @param  {Object} p Message payload from peer.
+	     */
+	    handleOp: function handleOp(payload) {
+	        var id = payload.id;
+	        var op = payload.op;
+	        var r = payload.r;
+	        // Apply remote operation to model.
+
+	        this._models[id].remoteOp(r, op);
+	    },
+
+
+	    /**
+	     * Import snapshot and history from peer.
+	     * @param  {Object} payload Text model and history data from peer.
+	     * @param  {String} id      Model identifier.
+	     */
+	    handleMeta: function handleMeta(payload, id) {
+	        var model = payload.model;
+	        var history = payload.history;
+
+	        this._models[id].import(model, history);
+	    },
+
+
+	    /**
+	     * Redirect a message from peer to the appropriate procedure.
+	     * @param  {Object} msg Message from peer.
+	     */
 	    handleMessage: function handleMessage(msg) {
 	        var scope = msg.scope;
 	        var data = msg.data;
 
-	        console.log(msg);
+
 	        switch (data.t) {
-	            case 'op':
-	                this.handleOpPayload(data.p);
+	            case MESSAGE_TYPES.OP:
+	                this.handleOp(data.p);
 	                break;
-	            case 'meta':
+	            case MESSAGE_TYPES.META:
 	                this.handleMeta(data.p, msg.scope);
 	                break;
 	            default:
@@ -158,33 +222,33 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	}, _eventemitter2.default.prototype);
 
+	/**
+	 * p2pedit constructor
+	 * @param  {Object} config Configuration object.
+	 * @return {Object}        p2pedit instance.
+	 */
 	var p2pedit = function p2pedit() {
 	    var config = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
 
 	    var id = config.id || (0, _utils.uuid)();
 	    var rtc = (0, _p2p2.default)({ id: id });
 	    var props = {
-	        models: {},
-	        adapters: {
-	            CM: _codemirror2.default
-	        },
+	        _models: {},
 	        _RTC: rtc
 	    };
 
-	    var obj = (0, _utils.c)(proto, props);
-
-	    rtc.on('ready', function () {
-	        obj.model(DEFAULT_SCOPE);
-	        obj.emit('ready');
-	    });
-
-	    rtc.on('data', function () {
-	        return obj.handleMessage.apply(obj, arguments);
-	    });
+	    var obj = (0, _utils.create)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
-	    window.client = obj;
+	    // Bubble up `ready` event from rtcClient.
+	    rtc.on('ready', function () {
+	        return obj.emit('ready');
+	    });
+	    // Handle messages from peers.
+	    rtc.on('data', function () {
+	        return obj.handleMessage.apply(obj, arguments);
+	    });
 
 	    return obj;
 	};
@@ -510,7 +574,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-	var proto = (0, _utils.c)(_eventemitter2.default.prototype, {
+	var proto = (0, _utils.create)(_eventemitter2.default.prototype, {
 	    adapter: function adapter(a) {
 	        var _this = this;
 
@@ -533,10 +597,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return a.update();
 	        });
 	    },
+	    import: function _import(model, history) {
+	        this.importModel(model);
+	        this.importHistory(history);
+	        this.sync();
+	    },
 	    broadcast: function broadcast(op, r) {
 	        var id = this.id;
 	        var parent = this._history.getRevision(r).parent;
-	        this.emit('broadcast', { id: id, op: op, r: parent });
+	        this.emit('broadcast', { op: op, r: parent });
 	    },
 	    remoteOp: function remoteOp(parent, op) {
 	        if (parent === this._history.head) {
@@ -600,7 +669,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var props = { id: id, _snapshot: _snapshot, _history: _history, _adapters: [] };
 
-	    var obj = (0, _utils.c)(proto, props);
+	    var obj = (0, _utils.create)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
@@ -1219,17 +1288,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; } return arr2; } else { return Array.from(arr); } }
 
-	var create = Object.create;
-	var assign = Object.assign;
-
-	var c = function c(proto, props) {
+	var create = function create(proto, props) {
 	    if (Array.isArray(proto)) {
 	        proto = proto.reduce(c);
 	    }
 	    if (Array.isArray(props)) {
 	        Object.assign.apply(Object, [props[0]].concat(_toConsumableArray(props.slice(1))));
 	    }
-	    return assign(create(proto), props);
+	    return Object.assign(Object.create(proto), props);
 	};
 
 	var noop = function noop() {
@@ -1247,8 +1313,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	var stringify = JSON.stringify;
 
 	exports.create = create;
-	exports.assign = assign;
-	exports.c = c;
 	exports.noop = noop;
 	exports.uuid = uuid;
 	exports.stringify = stringify;
@@ -1428,7 +1492,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        maxRevisions: maxRevisions
 	    };
 
-	    var obj = (0, _utils.c)(proto, props);
+	    var obj = (0, _utils.create)(proto, props);
 
 	    return obj;
 	};
@@ -1607,7 +1671,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	(0, _adapter2.default)(window);
 
 	var createCandidate = function createCandidate() {
-	    var _ref = arguments.length <= 0 || arguments[0] === undefined ? _utils.c : arguments[0];
+	    var _ref = arguments.length <= 0 || arguments[0] === undefined ? c : arguments[0];
 
 	    var sdpMLineIndex = _ref.sdpMLineIndex;
 	    var candidate = _ref.candidate;
@@ -1621,7 +1685,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    return console.error(err);
 	};
 
-	var proto = (0, _utils.c)(_eventemitter2.default.prototype, {
+	var proto = (0, _utils.create)(_eventemitter2.default.prototype, {
 	    // Send a message to all peers, optionally peers in a specific scope.
 
 	    send: function send(msg) {
@@ -1666,7 +1730,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    handleClose: function handleClose(msg) {
 	        var src = msg.src;
 
-	        this.removePeer(msg.src);
+	        this.removePeer(src);
 	    },
 
 
@@ -1695,6 +1759,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	            p = this.peers[pid];
 	        } else {
 	            p = this.peers[pid] = (0, _peer2.default)({ id: pid, socket: socket });
+	            p.on('close', function (e) {
+	                return _this.removePeer(pid);
+	            });
 	        }
 
 	        if (p._connections[cid]) {
@@ -1706,18 +1773,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	        c.on('data', function (data) {
 	            return _this.emit('data', { scope: scope, data: JSON.parse(data) });
 	        });
-	        c.on('close', function (e) {
-	            return _this.removePeer(pid);
-	        });
 
 	        return c;
 	    },
 	    removePeer: function removePeer(pid) {
 	        var p = this.peers[pid];
 
-	        p.destroy();
-
-	        delete this.peers[pid];
+	        // Peer may have closed from DataConnection close already.
+	        if (p) {
+	            p.destroy();
+	            delete this.peers[pid];
+	        }
 	    },
 
 
@@ -1777,8 +1843,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	        var t = msg.t;
 
 
-	        console.log(msg);
-
 	        if (id === this.id) {
 	            return;
 	        }
@@ -1810,13 +1874,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	    destroy: function destroy() {
 	        this.socket.send((0, _utils.stringify)({ t: 'CLOSE' }));
 	        for (var prop in this.peers) {
+	            var pid = this.peers[prop].id;
 	            this.removePeer(pid);
 	        }
 	        this.socket.close();
 	    }
 	});
 
-	var webRTCClient = function webRTCClient(config) {
+	var rtcClient = function rtcClient(config) {
 	    var id = config.id;
 
 	    var peers = {};
@@ -1826,7 +1891,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var props = { id: id, socket: socket, peers: peers, metas: metas, candidates: candidates };
 
-	    var obj = (0, _utils.c)(proto, props);
+	    var obj = (0, _utils.create)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
@@ -1844,7 +1909,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    return obj;
 	};
 
-	exports.default = webRTCClient;
+	exports.default = rtcClient;
 
 /***/ },
 /* 10 */
@@ -2090,7 +2155,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var DEFAULT_SCOPE = '/';
 
-	var proto = (0, _utils.c)({
+	var proto = (0, _utils.create)({
 	    send: function send(msg) {
 	        var scope = arguments.length <= 1 || arguments[1] === undefined ? DEFAULT_SCOPE : arguments[1];
 
@@ -2118,6 +2183,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	        });
 	        c.on('candidate', function (sdp) {
 	            return _this.handleCandidate(c, sdp);
+	        });
+	        c.on('close', function () {
+	            return _this.removeConnection(id);
 	        });
 
 	        if (scope) {
@@ -2161,10 +2229,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	            this._scopes[scope] = {};
 	        }
 
-	        console.log(scope);
-	        console.log(this._scopes[scope] = {});
-
 	        this._scopes[scope][c.id] = c;
+	    },
+	    removeConnection: function removeConnection(cid) {
+	        this._connections[cid].destroy();
+
+	        for (var name in this._scopes) {
+	            if (cid in this._scopes[name]) {
+	                delete this._scopes[name][cid];
+	            }
+	        }
+
+	        if (Object.keys(this._connections).length === 0) {
+	            this.emit('close');
+	        }
+
+	        delete this._connections[cid];
 	    },
 	    destroy: function destroy() {
 	        this.removeAllListeners();
@@ -2186,7 +2266,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        _scopes: {}
 	    };
 
-	    var obj = (0, _utils.c)(proto, props);
+	    var obj = (0, _utils.create)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
@@ -2257,7 +2337,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    return console.error(err);
 	};
 
-	var proto = (0, _utils.c)({
+	var proto = (0, _utils.create)({
 	    offer: function offer() {
 	        var _this = this;
 
@@ -2266,9 +2346,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        this.setDataChannel(dc);
 
-	        dc.onopen = function () {
-	            return _this.dc.send((0, _utils.stringify)({ t: 'meta', p: _this.getMeta() || {} }));
-	        };
+	        if (this.getMeta instanceof Function) {
+	            dc.onopen = function () {
+	                return _this.dc.send((0, _utils.stringify)(_this.getMeta()));
+	            };
+	        }
 
 	        pc.createOffer(function (sdp) {
 	            _this.onsdp(sdp);
@@ -2304,6 +2386,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        dc.onmessage = function (msg) {
 	            return _this3.emit('data', msg.data);
 	        };
+	        this.emit('ready');
 	    },
 	    send: function send(msg) {
 	        var _this4 = this;
@@ -2355,7 +2438,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var props = { id: id, pid: pid, pc: pc, messages: messages, getMeta: config.getMeta || _utils.noop, dc: null };
 
-	    var obj = (0, _utils.c)(proto, props);
+	    var obj = (0, _utils.create)(proto, props);
 
 	    _eventemitter2.default.call(obj);
 
@@ -2371,79 +2454,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	exports.default = connection;
-
-/***/ },
-/* 13 */
-/***/ function(module, exports) {
-
-	'use strict';
-
-	Object.defineProperty(exports, "__esModule", {
-	    value: true
-	});
-	var normalizePos = function normalizePos(lengths, pos) {
-	    return lengths.reduce(function (a, x, i) {
-	        return i < pos.line ? a + x : a;
-	    }, 0) + pos.ch;
-	};
-
-	function cmAdapter(model, sync, editor) {
-	    var handleChange = function handleChange(cm, change) {
-	        var from = change.from;
-	        var to = change.to;
-	        var origin = change.origin;
-	        var removed = change.removed;
-
-	        var text = change.text.join('\n');
-	        var lines = model.get().split('\n');
-	        var l = lines.map(function (x, i) {
-	            return i < lines.length - 1 && lines.length > 1 ? x.length + 1 : x.length;
-	        });
-	        var pos = [normalizePos(l, from), normalizePos(l, to)];
-
-	        switch (origin) {
-	            case '+input':
-	                if (removed && removed[0]) {
-	                    model.delete(pos[0], pos[1] - pos[0]);
-	                }
-	                model.insert(pos[0], text);
-	                break;
-	            case '+delete':
-	            case 'drag':
-	            case 'cut':
-	                model.delete(pos[0], pos[1] - pos[0]);
-	                break;
-	            case 'paste':
-	            case 'undo':
-	            case 'redo':
-	                model.delete(pos[0], pos[1] - pos[0]);
-	                model.insert(pos[0], text);
-	                break;
-	            default:
-	                return;
-	        }
-
-	        sync();
-	    };
-
-	    var install = function install() {
-	        editor.on('change', handleChange);
-	        model.addListener('remoteOp', update);
-	    };
-
-	    var uninstall = function uninstall() {
-	        editor.off('change', handleChange);
-	        model.removeListener('remoteOp', update);
-	    };
-
-	    var update = function update() {
-	        return editor.setValue(model.get());
-	    };
-
-	    return { install: install, uninstall: uninstall, update: update };
-	}
-
-	exports.default = cmAdapter;
 
 /***/ }
 /******/ ])

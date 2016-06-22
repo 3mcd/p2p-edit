@@ -2,7 +2,7 @@
 
 import sha1 from 'sha-1';
 
-import { c, uuid, stringify } from '../../utils';
+import { create, uuid, stringify } from '../../utils';
 
 const proto = {
 
@@ -165,7 +165,7 @@ const wayback = function (maxRevisions = null) {
         maxRevisions
     };
 
-    const obj = c(proto, props);
+    const obj = create(proto, props);
 
     return obj;
 }

@@ -1,6 +1,6 @@
 import EventEmitter from 'eventemitter3';
 
-import { c, uuid, stringify, noop } from '../../utils';
+import { create, uuid, stringify, noop } from '../../utils';
 
 const isFirefox = !!navigator.mozGetUserMedia;
 const isChrome = !!navigator.webkitGetUserMedia;
@@ -45,7 +45,7 @@ if (isChrome) {
 const createSDP = (sdp) => new RTCSessionDescription(sdp);
 const handleSDPError = (err) => console.error(err);
 
-const proto = c({
+const proto = create({
 
     offer() {
         const pc = this.pc;
@@ -53,7 +53,9 @@ const proto = c({
         
         this.setDataChannel(dc);
 
-        dc.onopen = () => this.dc.send(stringify({ t: 'meta', p: this.getMeta() || {} }));
+        if (this.getMeta instanceof Function) {
+            dc.onopen = () => this.dc.send(stringify(this.getMeta()));
+        }
 
         pc.createOffer((sdp) => {
             this.onsdp(sdp);
@@ -79,6 +81,7 @@ const proto = c({
     setDataChannel(dc) {
         this.dc = dc;
         dc.onmessage = (msg) => this.emit('data', msg.data);
+        this.emit('ready');
     },
 
     send(msg) {
@@ -126,7 +129,7 @@ const connection = function (config) {
     const { id, pid } = config;
     const props = { id, pid, pc, messages, getMeta: config.getMeta || noop, dc: null };
 
-    const obj = c(proto, props);
+    const obj = create(proto, props);
 
     EventEmitter.call(obj);
 

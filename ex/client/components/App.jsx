@@ -1,15 +1,18 @@
 import React from 'react';
 import CodeMirror from 'codemirror';
 import p2pedit from '../../../dist/p2p-edit';
+import cmAdapter from '../cm-adapter';
 
 var client = p2pedit();
+
+window.client = client;
 
 var App = React.createClass({
 
     componentWillMount () {
         client.on('ready', () => {
             this.model = client.model(this.props.model);
-            this.model.adapter(client.adapters.CM, this.editor);
+            this.model.adapter(cmAdapter, this.editor);
         });
     },
 

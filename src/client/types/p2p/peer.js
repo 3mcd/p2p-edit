@@ -2,11 +2,11 @@ import EventEmitter from 'eventemitter3';
 
 import connection from './connection';
 
-import { c, uuid, stringify } from '../../utils';
+import { create, uuid, stringify } from '../../utils';
 
 const DEFAULT_SCOPE = '/';
 
-const proto = c({
+const proto = create({
 
     send(msg, scope = DEFAULT_SCOPE) {
         if (!this._scopes[scope]) {
@@ -26,6 +26,7 @@ const proto = c({
 
         c.on('sdp', (sdp) => this.handleSDP(c, sdp));
         c.on('candidate', (sdp) => this.handleCandidate(c, sdp));
+        c.on('close', () => this.removeConnection(id));
 
         if (scope) {
             this.addToScope(scope, c);
@@ -77,10 +78,23 @@ const proto = c({
             this._scopes[scope] = {};
         }
 
-        console.log(scope);
-        console.log(this._scopes[scope] = {});
-
         this._scopes[scope][c.id] = c;
+    },
+
+    removeConnection(cid) {
+        this._connections[cid].destroy();
+
+        for (var name in this._scopes) {
+            if (cid in this._scopes[name]) {
+                delete this._scopes[name][cid];
+            }
+        }
+
+        if (Object.keys(this._connections).length === 0) {
+            this.emit('close');
+        }
+
+        delete this._connections[cid];
     },
 
     destroy() {
@@ -102,7 +116,7 @@ const peer = function (config) {
         _scopes: {}
     };
 
-    const obj = c(proto, props);
+    const obj = create(proto, props);
 
     EventEmitter.call(obj);
 
