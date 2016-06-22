@@ -58,13 +58,9 @@ function onRequest(socket) {
             onMessage(JSON.parse(msg.utf8Data), ws);
         }
     });
-
-    // ws.on('close', () => onClose(ws))
 }
 
 function addClient (id, ws, scope) {
-    console.log(`Adding client with id ${id} to scope ${scope}.`);
-
     if (!scopes[scope]) {
         scopes[scope] = {};
     }
@@ -129,8 +125,6 @@ function send(msg, ws) {
 
     const scope = scopes[msg.p.scope];
 
-    console.log(`${msg.t} to ${msg.p.scope}: ${JSON.stringify(msg.p)}`);
-
     if (scope === undefined) {
         console.error(`Message from ${src} was sent without a destination client or scope.`);
         return;
@@ -159,8 +153,7 @@ function onClose(msg, ws) {
     const id = getClientId(ws);
     const client = clients[id];
 
-    console.log(`Removing client with id ${id}.`);
-
+    // Generate a message to send to all clients in scope
     msg = Object.assign({ p: { scopes: [] } }, msg);
 
     for (var name in scopes) {
@@ -178,11 +171,7 @@ function onClose(msg, ws) {
 }
 
 function onMessage(msg, ws) {
-    // console.log('Recieved message: ', msg);
     switch (msg.t) {
-        case 'CP':
-            checkPresence(msg, ws);
-            break;
         case 'OPEN':
             onOpen(msg, ws);
             break;
@@ -192,24 +181,6 @@ function onMessage(msg, ws) {
         default:
             send(msg, ws);
     }
-}
-
-function checkPresence(msg, ws) {
-    ws.sendUTF(JSON.stringify({
-        isScopePresent: !!scopes[msg.scope]
-    }));
-}
-
-function swapArray(arr) {
-    const swapped = [];
-
-    for (var i = 0; i < arr.length; i++) {
-        if (arr[i]) {
-            swapped[swapped.length] = arr[i];
-        }
-    }
-
-    return swapped;
 }
 
 app.listen(12034);
