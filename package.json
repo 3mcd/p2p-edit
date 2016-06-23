@@ -5,7 +5,7 @@
   "main": "ex/app.js",
   "scripts": {
     "build": "webpack",
-    "dev": "npm run signal & npm run watch & npm run ex",
+    "dev": "npm run watch & npm run ex",
     "ex": "npm run signal & node ex/app.js",
     "postinstall": "npm run build",
     "signal": "node ./src/server/signaler.js",

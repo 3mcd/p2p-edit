@@ -3,11 +3,13 @@ import CodeMirror from 'codemirror';
 import p2pedit from '../../../dist/p2p-edit';
 import cmAdapter from '../cm-adapter';
 
-var client = p2pedit();
+const client = p2pedit({
+    server: 'ws://' + document.domain + ':12034'
+});
 
 window.client = client;
 
-var App = React.createClass({
+const App = React.createClass({
 
     componentWillMount () {
         client.on('ready', () => {
@@ -21,7 +23,7 @@ var App = React.createClass({
     },
 
     componentDidMount() {
-        this.editor = CodeMirror.fromTextArea(this.$editor, {
+        this.editor = window.editor = CodeMirror.fromTextArea(this.$editor, {
             lineNumbers: true,
             lineWrapping: true,
             indentUnit: 4,

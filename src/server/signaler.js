@@ -1,37 +1,25 @@
-// https://www.webrtc-experiment.com/
-
-// Dependencies:
-// 1. WebSocket
-// 2. Node-Static
-
-// Features:
-// 1. WebSocket over Nodejs connection
-// 2. WebSocket scopes i.e. rooms
-
 'use strict';
 
-var fs = require('fs');
+const fs = require('fs');
+const Server = require('node-static').Server;
 
-var Server = require('node-static').Server;
-var file = new Server('./public');
+const file = new Server('./public');
 
 // HTTP server
-var app = require('http').createServer(function(request, response) {
-    request.addListener('end', function() {
+const app = require('http').createServer((request, response) => {
+    request.addListener('end', () => {
         file.serve(request, response);
     }).resume();
 });
 
-var WebSocketServer = require('websocket').server;
+const WebSocketServer = require('websocket').server;
 
 new WebSocketServer({
     httpServer: app,
     autoAcceptConnections: false
 }).on('request', onRequest);
 
-// shared stuff
-
-const SERVER_IDENTIFIER = 's';
+const SERVER_IDENTIFIER = 'signaler';
 
 const scopes = {};
 const clients = {};

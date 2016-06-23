@@ -56,6 +56,7 @@ const proto = create({
         // with an operation.
         m.on('broadcast', (payload) => this.broadcastOp(payload, m.id));
         // TODO: Implement concurrency control.
+        // Get sequence on remote client between head and op.
         m.on('resync', noop);
 
         // Connect to a scope on the server. This method will create the scope
@@ -113,6 +114,8 @@ const proto = create({
     handleMessage(msg) {
         const { scope, data } = msg;
 
+        console.log(data);
+
         switch (data.t) {
             case MESSAGE_TYPES.OP:
                 this.handleOp(data.p);
@@ -133,7 +136,8 @@ const proto = create({
  */
 const p2pedit = function (config = {}) {
     const id = config.id || uuid();
-    const rtc = rtcClient({ id });
+    const server = config.server;
+    const rtc = rtcClient({ id, server });
     const props = {
         _models: {},
         _RTC: rtc

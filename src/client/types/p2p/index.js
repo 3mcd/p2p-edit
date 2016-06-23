@@ -178,11 +178,17 @@ const proto = create(EventEmitter.prototype, {
 });
 
 const rtcClient = function (config) {
-    const { id } = config;
+    const { id, server } = config;
     const peers = {};
     const metas = {}; // ew
     const candidates = [];
-    const socket = new WebSocket('ws://' + document.domain + ':12034');
+
+
+    if (!/^(https?|ws):\/\//.test(server)) {
+        throw new Error('The server URL must contain a valid protocol.');
+    }
+
+    const socket = new WebSocket(server);
 
     const props = { id, socket, peers, metas, candidates };
 

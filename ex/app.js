@@ -10,7 +10,7 @@ var app = koa();
 app.use(koaStatic(__dirname + '../dist'));
 app.use(koaStatic(__dirname + '/public'));
 
-var hotMiddleware = require("webpack-hot-middleware")(compiler);
+// var hotMiddleware = require("webpack-hot-middleware")(compiler);
 
 app.use(webpackMiddleware(compiler, {
     noInfo: true,
@@ -18,7 +18,7 @@ app.use(webpackMiddleware(compiler, {
 }));
 
 app.use(function* (next) {
-  yield hotMiddleware.bind(null, this.req, this.res);
+  // yield hotMiddleware.bind(null, this.req, this.res);
   yield next;
 });
 

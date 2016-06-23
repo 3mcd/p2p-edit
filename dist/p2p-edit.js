@@ -137,6 +137,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return _this.broadcastOp(payload, m.id);
 	        });
 	        // TODO: Implement concurrency control.
+	        // Get sequence on remote client between head and op.
 	        m.on('resync', _utils.noop);
 
 	        // Connect to a scope on the server. This method will create the scope
@@ -209,6 +210,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        var data = msg.data;
 
 
+	        console.log(data);
+
 	        switch (data.t) {
 	            case MESSAGE_TYPES.OP:
 	                this.handleOp(data.p);
@@ -231,7 +234,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var config = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
 
 	    var id = config.id || (0, _utils.uuid)();
-	    var rtc = (0, _p2p2.default)({ id: id });
+	    var server = config.server;
+	    var rtc = (0, _p2p2.default)({ id: id, server: server });
 	    var props = {
 	        _models: {},
 	        _RTC: rtc
@@ -612,12 +616,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	            this.submit(op, _utils.noop);
 	        } else {
 	            var sequence = this._history.getSequence(parent);
-	            // snapshot is out of date
 	            if (sequence === null) {
 	                this.emit('resync');
 	                return;
 	            } else {
-	                // operation is out of date
 	                var composedSequence = sequence.reduce(_otTextTp.type.compose);
 	                this.submit(_otTextTp.type.transform(op, composedSequence, 'left'), _utils.noop);
 	            }
@@ -641,10 +643,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	    get: function get() {
 	        return this._model.get();
 	    },
-	    submit: function submit(op, cb) {
+	    submit: function submit(op, cb, r) {
 	        op = _otTextTp.type.normalize(op);
 	        this._snapshot = _otTextTp.type.apply(this._snapshot, op);
-	        cb(op, this._history.push(op));
+	        cb(op, this._history.push(op, r));
 	    },
 	    importModel: function importModel(model) {
 	        this._snapshot = _otTextTp.type.deserialize(model);
@@ -1883,11 +1885,17 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var rtcClient = function rtcClient(config) {
 	    var id = config.id;
+	    var server = config.server;
 
 	    var peers = {};
 	    var metas = {}; // ew
 	    var candidates = [];
-	    var socket = new WebSocket('ws://' + document.domain + ':12034');
+
+	    if (!/^(https?|ws):\/\//.test(server)) {
+	        throw new Error('The server URL must contain a valid protocol.');
+	    }
+
+	    var socket = new WebSocket(server);
 
 	    var props = { id: id, socket: socket, peers: peers, metas: metas, candidates: candidates };
 

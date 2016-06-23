@@ -34,12 +34,10 @@ const proto = create(EventEmitter.prototype, {
             this.submit(op, noop);
         } else {
             let sequence = this._history.getSequence(parent);
-            // snapshot is out of date
             if (sequence === null) {
                 this.emit('resync');
                 return;
             } else {
-                // operation is out of date
                 let composedSequence = sequence.reduce(type.compose);
                 this.submit(type.transform(op, composedSequence, 'left'), noop);
             }
@@ -59,10 +57,10 @@ const proto = create(EventEmitter.prototype, {
         return this._model.get();
     },
 
-    submit(op, cb) {
+    submit(op, cb, r) {
         op = type.normalize(op);
         this._snapshot = type.apply(this._snapshot, op);
-        cb(op, this._history.push(op));
+        cb(op, this._history.push(op, r));
     },
 
     importModel(model) {
