@@ -134,7 +134,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // When the model is updated locally, it will emit a broadcast event
 	        // with an operation.
 	        m.on('broadcast', function (payload) {
-	            return _this.broadcastOp(payload, m.id);
+	            return _this.broadcastOp(payload);
 	        });
 	        // TODO: Implement concurrency control.
 	        // Get sequence on remote client between head and op.
@@ -165,12 +165,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param  {Object} payload Data to send.
 	     * @param  {String} id      Model identifier.
 	     */
-	    broadcastOp: function broadcastOp(payload, id) {
-	        var op = payload.op;
-	        var r = payload.r;
-
-	        var msg = createMessage(MESSAGE_TYPES.OP, { id: id, op: op, r: r });
-	        this._RTC.send(msg, id);
+	    broadcastOp: function broadcastOp(payload) {
+	        var msg = createMessage(MESSAGE_TYPES.OP, payload);
+	        this._RTC.send(msg, payload.id);
 	    },
 
 
@@ -179,12 +176,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param  {Object} p Message payload from peer.
 	     */
 	    handleOp: function handleOp(payload) {
-	        var id = payload.id;
-	        var op = payload.op;
-	        var r = payload.r;
 	        // Apply remote operation to model.
-
-	        this._models[id].remoteOp(r, op);
+	        this._models[payload.id].remoteOp(payload);
 	    },
 
 
@@ -572,9 +565,9 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var _utils = __webpack_require__(6);
 
-	var _wayback = __webpack_require__(7);
+	var _history2 = __webpack_require__(7);
 
-	var _wayback2 = _interopRequireDefault(_wayback);
+	var _history3 = _interopRequireDefault(_history2);
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -606,22 +599,34 @@ return /******/ (function(modules) { // webpackBootstrap
 	        this.importHistory(history);
 	        this.sync();
 	    },
-	    broadcast: function broadcast(op, r) {
+	    broadcast: function broadcast(op, revision) {
+	        var rev = revision;
 	        var id = this.id;
-	        var parent = this._history.getRevision(r).parent;
-	        this.emit('broadcast', { op: op, r: parent });
+	        var l = this._history.get(revision).l;
+
+	        this.emit('broadcast', { id: id, l: l, op: op, rev: rev });
 	    },
-	    remoteOp: function remoteOp(parent, op) {
-	        if (parent === this._history.head) {
+	    remoteOp: function remoteOp(payload) {
+	        var l = payload.l;
+	        var op = payload.op;
+	        var rev = payload.rev;
+
+	        console.log('Got revision: ' + rev);
+	        if (l === this._history.head) {
 	            this.submit(op, _utils.noop);
 	        } else {
-	            var sequence = this._history.getSequence(parent);
+	            var sequence = this._history.sequence(l);
 	            if (sequence === null) {
+	                console.log('Missing revision: ' + l);
+	                debugger;
 	                this.emit('resync');
 	                return;
 	            } else {
-	                var composedSequence = sequence.reduce(_otTextTp.type.compose);
-	                this.submit(_otTextTp.type.transform(op, composedSequence, 'left'), _utils.noop);
+	                console.log('Catching up');
+	                console.log(sequence);
+	                var composed = sequence.reduce(_otTextTp.type.compose);
+
+	                this.submit(_otTextTp.type.transform(op, composed, 'left'), _utils.noop, l, rev);
 	            }
 	        }
 	        this.emit('remoteOp', { op: op });
@@ -629,24 +634,28 @@ return /******/ (function(modules) { // webpackBootstrap
 	    insert: function insert(index, text) {
 	        var _this2 = this;
 
-	        this._model.insert(index, text, function (op, r) {
-	            return _this2.broadcast(op, r);
+	        this._model.insert(index, text, function (op, revision) {
+	            return _this2.broadcast(op, revision);
 	        });
 	    },
 	    delete: function _delete(index, numChars) {
 	        var _this3 = this;
 
-	        this._model.remove(index, numChars, function (op, r) {
-	            return _this3.broadcast(op, r);
+	        this._model.remove(index, numChars, function (op, revision) {
+	            return _this3.broadcast(op, revision);
 	        });
 	    },
 	    get: function get() {
 	        return this._model.get();
 	    },
-	    submit: function submit(op, cb, r) {
+	    submit: function submit(op, cb) {
+	        var parent = arguments.length <= 2 || arguments[2] === undefined ? null : arguments[2];
+	        var id = arguments.length <= 3 || arguments[3] === undefined ? null : arguments[3];
+
 	        op = _otTextTp.type.normalize(op);
 	        this._snapshot = _otTextTp.type.apply(this._snapshot, op);
-	        cb(op, this._history.push(op, r));
+	        var revision = this._history.insert({ l: parent, data: op, id: id });
+	        cb(op, revision);
 	    },
 	    importModel: function importModel(model) {
 	        this._snapshot = _otTextTp.type.deserialize(model);
@@ -654,11 +663,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	    exportModel: function exportModel() {
 	        return _otTextTp.type.serialize(this._snapshot);
 	    },
-	    importHistory: function importHistory(h) {
-	        this._history.importModel(h);
+	    importHistory: function importHistory(history) {
+	        this._history.import(history);
 	    },
 	    exportHistory: function exportHistory() {
-	        return this._history.exportModel();
+	        return this._history.export();
 	    }
 	});
 
@@ -667,7 +676,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var _snapshot = _otTextTp.type.create(text);
 
-	    var _history = (0, _wayback2.default)();
+	    var _history = (0, _history3.default)();
 
 	    var props = { id: id, _snapshot: _snapshot, _history: _history, _adapters: [] };
 
@@ -1337,161 +1346,147 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-	// Adopted from hharnisc/wayback
-
 	var proto = {
-	    importModel: function importModel(model) {
+
+	    // [Symbol.iterator]: function* () {
+	    //     var node = this.nodes[this.tail];
+	    //     while (node) {
+	    //         yield node;
+	    //         node = this.nodes[node.r];
+	    //     }
+	    // },
+
+	    import: function _import(history) {
 	        // TODO: sanitize input
 	        // TODO: handle when maximumRevisions is set
-	        this.model = model.model;
-	        this.modelLength = model.length;
-	        this.tail = model.tail;
-	        this.head = model.head;
+	        this.nodes = history.nodes;
+	        this.length = history.length;
+	        this.tail = history.tail;
+	        this.head = history.head;
 	    },
-	    exportModel: function exportModel() {
+	    export: function _export() {
 	        return {
-	            model: this.model,
-	            length: this.modelLength,
+	            nodes: this.nodes,
+	            length: this.length,
 	            head: this.head,
 	            tail: this.tail
 	        };
 	    },
-	    hasRevision: function hasRevision(r) {
-	        return r in this.model;
-	    },
-	    getRevision: function getRevision(r) {
-	        return this.hasRevision(r) ? this.model[r] : null;
-	    },
-	    getSequence: function getSequence(r) {
-	        if (!this.hasRevision(r)) {
-	            return null;
-	        }
-
-	        var sequence = [];
-	        var curRevision = this.model[r].child;
-
-	        while (curRevision) {
-	            var curModel = this.model[curRevision];
-	            sequence.push(curModel.data);
-	            curRevision = curModel.child;
-	        }
-
-	        return sequence;
-	    },
 	    push: function push(data) {
-	        var r = arguments.length <= 1 || arguments[1] === undefined ? null : arguments[1];
+	        var id = this.createNode({ data: data, l: this.head });
 
-	        // create a new node
-	        var id = this.createNode(this.head, data, r);
-
-	        // set the new node as the child of the
-	        // parent if it exists
 	        if (this.head) {
-	            this.model[this.head].child = id;
+	            this.nodes[this.head].r = id;
 	        }
 
-	        // update the head and tail references
 	        this.head = id;
 
 	        if (!this.tail) {
 	            this.tail = id;
 	        }
 
-	        // increment the model length
-	        this.modelLength += 1;
+	        return id;
+	    },
+	    pop: function pop() {
+	        if (!this.tail) {
+	            return null;
+	        }
 
-	        if (this.maxRevisions && this.modelLength > this.maxRevisions) {
+	        var node = this.nodes[this.tail];
+	        var item = {};
+
+	        item[this.tail] = node;
+
+	        delete this.nodes[this.tail];
+
+	        if (this.length > 1) {
+	            this.tail = node.r;
+	        } else {
+	            this.tail = null;
+	            this.head = null;
+	        }
+
+	        this.length--;
+
+	        return item;
+	    },
+	    insert: function insert(spec) {
+	        var l = spec.l;
+	        var data = spec.data;
+	        var id = spec.id;
+
+
+	        l = l || this.head;
+
+	        if (l === this.head) {
+	            return this.push(data);
+	        }
+
+	        l = this.nodes[l];
+	        var r = this.nodes[l.r];
+
+	        // l <- newNode -> r
+	        id = this.createNode({ l: l, data: data, r: l.r, id: id });
+
+	        // l -> newNode
+	        l.r = id;
+
+	        // newNode <- r
+	        r.l = id;
+
+	        this.length += 1;
+
+	        if (this.maxLength && this.length > this.maxLength) {
 	            this.pop();
 	        }
 
 	        return id;
 	    },
-	    pop: function pop() {
-	        // if empty return null
-	        if (!this.tail) {
+	    createNode: function createNode(spec) {
+	        var data = spec.data;
+	        var l = spec.l;
+	        var r = spec.r;
+	        var id = spec.id;
+
+
+	        id = id || (0, _sha2.default)((0, _utils.stringify)({ l: l, data: data }));
+
+	        this.nodes[id] = { data: data, l: l, r: r };
+
+	        return id;
+	    },
+	    has: function has(id) {
+	        return id in this.nodes;
+	    },
+	    get: function get(id) {
+	        return this.nodes[id] || null;
+	    },
+	    sequence: function sequence(id) {
+	        var node = this.nodes[id];
+
+	        if (!node) {
 	            return null;
 	        }
 
-	        // get the current tail item
-	        var modelItem = this.model[this.tail];
-	        var item = {};
+	        var sequence = [];
 
-	        item[this.tail] = modelItem;
-
-	        delete this.model[this.tail];
-
-	        // if there are 2 or more revisions update the child
-	        if (this.modelLength > 1) {
-	            this.tail = modelItem.child;
-	            // this.model[modelItem.child].parent = null;
-	        } else {
-	                // otherwise clear the head and tail revisions
-	                this.tail = null;
-	                this.head = null;
-	            }
-
-	        // decrement the number if items
-	        this.modelLength -= 1;
-
-	        return item;
-	    },
-	    insert: function insert(parent, data) {
-	        var r = arguments.length <= 2 || arguments[2] === undefined ? null : arguments[2];
-
-	        // unknown parent
-	        if (!this.hasRevision(parent)) {
-	            return null;
+	        while (node = this.nodes[node.r]) {
+	            sequence[sequence.length] = node.data;
 	        }
 
-	        // just do a push op when inserting to head
-	        if (parent === this.head) {
-	            return this.push(data, r);
-	        }
-
-	        var parentModel = this.model[parent];
-	        var childModel = this.model[parentModel.child];
-
-	        // create a new node with links:
-	        // parent <- newNode -> child
-	        var insertId = this.createNode(parent, data, parentModel.child, r);
-
-	        // parent -> newNode
-	        parentModel.child = insertId;
-
-	        // newNode <- child
-	        childModel.parent = insertId;
-
-	        // increment the model length
-	        this.modelLength += 1;
-
-	        if (this.maxRevisions && this.modelLength > this.maxRevisions) {
-	            this.pop();
-	        }
-
-	        return insertId;
-	    },
-	    createNode: function createNode(parent, data) {
-	        var child = arguments.length <= 2 || arguments[2] === undefined ? null : arguments[2];
-	        var r = arguments.length <= 3 || arguments[3] === undefined ? null : arguments[3];
-
-	        r = r || (0, _sha2.default)((0, _utils.stringify)({ parent: parent, data: data }));
-
-	        // create a new node
-	        this.model[r] = { data: data, parent: parent, child: child };
-
-	        return r;
+	        return sequence;
 	    }
 	};
 
-	var wayback = function wayback() {
-	    var maxRevisions = arguments.length <= 0 || arguments[0] === undefined ? null : arguments[0];
+	var history = function history() {
+	    var spec = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
 
 	    var props = {
-	        model: {},
-	        modelLength: 0,
 	        head: null,
 	        tail: null,
-	        maxRevisions: maxRevisions
+	        nodes: {},
+	        length: 0,
+	        maxLength: spec.maxLength || Infinity
 	    };
 
 	    var obj = (0, _utils.create)(proto, props);
@@ -1499,7 +1494,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    return obj;
 	};
 
-	exports.default = wayback;
+	exports.default = history;
 
 /***/ },
 /* 8 */

@@ -54,7 +54,7 @@ const proto = create({
         // Set up listeners for the model.
         // When the model is updated locally, it will emit a broadcast event
         // with an operation.
-        m.on('broadcast', (payload) => this.broadcastOp(payload, m.id));
+        m.on('broadcast', (payload) => this.broadcastOp(payload));
         // TODO: Implement concurrency control.
         // Get sequence on remote client between head and op.
         m.on('resync', noop);
@@ -81,10 +81,9 @@ const proto = create({
      * @param  {Object} payload Data to send.
      * @param  {String} id      Model identifier.
      */
-    broadcastOp(payload, id) {
-        const { op, r } = payload;
-        const msg = createMessage(MESSAGE_TYPES.OP, { id, op, r });
-        this._RTC.send(msg, id);
+    broadcastOp(payload) {
+        const msg = createMessage(MESSAGE_TYPES.OP, payload);
+        this._RTC.send(msg, payload.id);
     },
 
     /**
@@ -92,9 +91,8 @@ const proto = create({
      * @param  {Object} p Message payload from peer.
      */
     handleOp(payload) {
-        const { id, op, r } = payload;
         // Apply remote operation to model.
-        this._models[id].remoteOp(r, op);
+        this._models[payload.id].remoteOp(payload);
     },
 
     /**

@@ -2,7 +2,7 @@ import EventEmitter from 'eventemitter3';
 import { type } from 'ot-text-tp2';
 
 import { create, noop } from '../../utils';
-import wayback from '../wayback';
+import history from '../history';
 
 const proto = create(EventEmitter.prototype, {
 
@@ -23,44 +23,54 @@ const proto = create(EventEmitter.prototype, {
         this.sync();
     },
 
-    broadcast(op, r) {
+    broadcast(op, revision) {
+        const rev = revision;
         const id = this.id;
-        const parent = this._history.getRevision(r).parent;
-        this.emit('broadcast', { op, r: parent });
+        const l = this._history.get(revision).l;
+
+        this.emit('broadcast', { id, l, op, rev });
     },
 
-    remoteOp(parent, op) {
-        if (parent === this._history.head) {
+    remoteOp(payload) {
+        const { l, op, rev } = payload;
+        console.log(`Got revision: ${rev}`);
+        if (l === this._history.head) {
             this.submit(op, noop);
         } else {
-            let sequence = this._history.getSequence(parent);
+            let sequence = this._history.sequence(l);
             if (sequence === null) {
+                console.log(`Missing revision: ${l}`);
+                debugger;
                 this.emit('resync');
                 return;
             } else {
-                let composedSequence = sequence.reduce(type.compose);
-                this.submit(type.transform(op, composedSequence, 'left'), noop);
+                console.log(`Catching up`);
+                console.log(sequence);
+                let composed = sequence.reduce(type.compose);
+
+                this.submit(type.transform(op, composed, 'left'), noop, l, rev);
             }
         }
         this.emit('remoteOp', { op });
     },
 
     insert(index, text) {
-        this._model.insert(index, text, (op, r) => this.broadcast(op, r));
+        this._model.insert(index, text, (op, revision) => this.broadcast(op, revision));
     },
 
     delete(index, numChars) {
-        this._model.remove(index, numChars, (op, r) => this.broadcast(op, r));
+        this._model.remove(index, numChars, (op, revision) => this.broadcast(op, revision));
     },
 
     get() {
         return this._model.get();
     },
 
-    submit(op, cb, r) {
+    submit(op, cb, parent = null, id = null) {
         op = type.normalize(op);
         this._snapshot = type.apply(this._snapshot, op);
-        cb(op, this._history.push(op, r));
+        const revision = this._history.insert({ l: parent, data: op, id });
+        cb(op, revision);
     },
 
     importModel(model) {
@@ -71,12 +81,12 @@ const proto = create(EventEmitter.prototype, {
         return type.serialize(this._snapshot);
     },
 
-    importHistory(h) {
-        this._history.importModel(h);
+    importHistory(history) {
+        this._history.import(history);
     },
 
     exportHistory() {
-        return this._history.exportModel();
+        return this._history.export();
     }
 
 });
@@ -84,7 +94,7 @@ const proto = create(EventEmitter.prototype, {
 const model = function (id, text = '') {
     var _snapshot = type.create(text);
     
-    const _history = wayback();
+    const _history = history();
 
     const props = { id, _snapshot, _history, _adapters: [] };
 
